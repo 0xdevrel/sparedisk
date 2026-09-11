@@ -114,8 +114,8 @@ struct ReviewQueueView: View {
         }
         .animation(.default, value: app.reviewItems.map(\.id))
         .dropDestination(for: URL.self) { urls, _ in
-            _ = app.stage(urls: urls, source: "Drag")
-        }
+            app.stage(urls: urls, source: "Drag") > 0
+        } isTargeted: { _ in }
         .sheet(isPresented: $confirming) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(planCount == 1 ? "Move 1 item to the Trash?" : "Move \(planCount) items to the Trash?").font(.system(size: 17, weight: .semibold))

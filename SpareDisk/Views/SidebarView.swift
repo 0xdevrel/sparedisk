@@ -76,8 +76,8 @@ struct SidebarView: View {
                 }
                 .tag(SDSidebarSelection.review)
                 .dropDestination(for: URL.self) { urls, _ in
-                    _ = app.stage(urls: urls, source: "Drag")
-                }
+                    app.stage(urls: urls, source: "Drag") > 0
+                } isTargeted: { _ in }
             }
         }
         .listStyle(.sidebar)
