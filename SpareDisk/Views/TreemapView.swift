@@ -93,12 +93,14 @@ struct TreemapView: View {
         return ZStack(alignment: .topLeading) {
             ForEach(frames, id: \.id) { frame in
                 if let entry = byID[frame.id] {
+                    // .position (not .offset): centers land exactly in parent
+                    // space, so tiles butt against each other with no drift.
                     if entry.isOther {
-                        otherCell(entry: entry, rect: frame.rect)
-                            .offset(x: frame.rect.minX + 2, y: frame.rect.minY + 2)
+                        otherCell(entry: entry, rect: frame.rect.insetBy(dx: 2, dy: 2))
+                            .position(x: frame.rect.midX, y: frame.rect.midY)
                     } else {
                         folderCell(node: entry.node, rect: frame.rect.insetBy(dx: 2, dy: 2), denom: levelSum)
-                            .offset(x: frame.rect.minX + 2, y: frame.rect.minY + 2)
+                            .position(x: frame.rect.midX, y: frame.rect.midY)
                     }
                 }
             }
@@ -130,7 +132,20 @@ struct TreemapView: View {
         let kids = (node.children ?? []).sorted { $0.logicalBytes > $1.logicalBytes }
         let shown = Array(kids.prefix(8))
         let hidden = kids.count - shown.count
-        let canNest = !shown.isEmpty && rect.width > 120 && rect.height > 90
+        // Deterministic vertical split: header + nested area + caption always
+        // sum to the cell height, so no blank slab can appear mid-cell.
+        let showTitle = rect.width > 64
+        let showSize = showTitle && rect.height > 40
+        let headerH: CGFloat = showTitle ? (showSize ? 46 : 28) : 6
+        let moreH: CGFloat = hidden > 0 ? 18 : 0
+        let bodyH = max(0, rect.height - headerH - moreH - 4)
+        let bodyW = max(0, rect.width - 8)
+        let canNest = !shown.isEmpty && bodyW > 60 && bodyH > 44
+        let childFrames = canNest
+            ? TreemapLayout.squarify(shown.map { ($0.id, CGFloat($0.logicalBytes)) },
+                                     in: CGRect(x: 0, y: 0, width: bodyW, height: bodyH))
+            : []
+        let kidsByID = Dictionary(uniqueKeysWithValues: shown.map { ($0.id, $0) })
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 4)
                 .fill(SDTheme.color(for: node.category).opacity(selected(node) ? 0.85 : 0.5))
@@ -144,30 +159,29 @@ struct TreemapView: View {
                     app.inspectedNodeID = node.id
                 } label: {
                     VStack(alignment: .leading, spacing: 1) {
-                        if rect.width > 64 {
+                        if showTitle {
                             Text(node.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                         }
-                        if rect.width > 64 && rect.height > 40 {
+                        if showSize {
                             Text(SDFormat.bytesString(node.logicalBytes))
                                 .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
                         }
                     }
                     .padding(6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .focusable()
+                .frame(height: headerH)
                 .simultaneousGesture(TapGesture(count: 2).onEnded { drill(node) })
                 .help("\(node.name) — \(SDFormat.bytesString(node.logicalBytes)). Double-click to drill in.")
                 .accessibilityLabel("\(node.name), \(SDFormat.bytesString(node.logicalBytes))\(kids.isEmpty ? "" : ", folder, double-click to drill in")")
 
                 if canNest {
-                    let bodyRect = CGRect(x: 0, y: 0, width: rect.width - 8, height: rect.height - 34)
-                    let childFrames = TreemapLayout.squarify(shown.map { ($0.id, CGFloat($0.logicalBytes)) }, in: bodyRect)
                     ZStack(alignment: .topLeading) {
                         ForEach(childFrames, id: \.id) { frame in
-                            if let kid = shown.first(where: { $0.id == frame.id }) {
+                            if let kid = kidsByID[frame.id] {
                                 Button {
                                     app.inspectedNodeID = kid.id
                                 } label: {
@@ -191,15 +205,17 @@ struct TreemapView: View {
                                 .help("\(kid.name) — \(SDFormat.bytesString(kid.logicalBytes))")
                                 .accessibilityLabel("\(kid.name), \(SDFormat.bytesString(kid.logicalBytes))")
                                 .frame(width: max(0, frame.rect.width - 2), height: max(0, frame.rect.height - 2))
-                                .offset(x: frame.rect.minX + 4, y: frame.rect.minY)
+                                .position(x: frame.rect.midX, y: frame.rect.midY)
                             }
                         }
                     }
+                    .frame(width: bodyW, height: bodyH)
                     .padding(.horizontal, 4)
                     if hidden > 0 {
                         Text("+\(hidden) more in list")
                             .font(.system(size: 10)).foregroundStyle(.secondary)
-                            .padding(.horizontal, 6).padding(.bottom, 4)
+                            .frame(height: moreH)
+                            .padding(.horizontal, 6)
                     }
                 }
             }
@@ -232,7 +248,7 @@ struct TreemapView: View {
         }
         .buttonStyle(.plain)
         .focusable()
-        .frame(width: max(0, rect.width - 4), height: max(0, rect.height - 4))
+        .frame(width: max(0, rect.width), height: max(0, rect.height))
         .help("Other \(entry.members) small items — activate to explore them in the list")
         .accessibilityLabel("Other \(entry.members) small items. Activate to show in list.")
     }

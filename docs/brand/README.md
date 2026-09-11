@@ -4,7 +4,7 @@ Created September 12, 2026 with the built-in imagegen tool (builtin mode). No ex
 
 - `SpareDisk-Icon.png`: 1024×1024 RGBA master.
 - `Original-AppIcon.png`: backup of the app's previous 1024px icon.
-- Production assets: `SpareDisk/Assets.xcassets/AppIcon.appiconset` and `SpareDiskLogo.imageset`.
+- Production assets: `SpareDisk/Sparedisk.icon` (layered Icon Composer source, compiled at build time) and `SpareDiskLogo.imageset` (in-app logo). The flattened `AppIcon.appiconset` was retired once the `.icon` source shipped.
 
 The pale disk, teal spare sector and midnight-blue tile express the product's storage purpose without letters or tiny symbols. Use the master as source; avoid repeatedly resizing small outputs. The art is raster, not a vector or layered Icon Composer source.
 
@@ -14,4 +14,4 @@ The pale disk, teal spare sector and midnight-blue tile express the product's st
 
 ## Maintenance
 
-AppIcon `Contents.json` contains ten macOS entries. Generate each filename at point size × scale. The named in-app logo uses 128px and 256px files. Keep `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`. A new Xcode build/relaunch is required to see asset changes; an older running app may retain its previous icon.
+AppIcon `Contents.json` historically contained ten macOS entries. The named in-app logo uses 128px and 256px files. Keep `ASSETCATALOG_COMPILER_APPICON_NAME = Sparedisk` while the `.icon` source is the app icon. A new Xcode build/relaunch is required to see asset changes; an older running app may retain its previous icon.
