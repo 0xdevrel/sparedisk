@@ -9,8 +9,13 @@ struct TreemapView: View {
     @Environment(AppState.self) private var app
     let nodes: [ScanNode]
 
+    private var focus: ScanNode? { app.mapTrail.last }
+
     private var levelNodes: [ScanNode] {
-        app.mapTrail.last?.children ?? nodes
+        if let f = focus {
+            return app.children(of: f) ?? []
+        }
+        return nodes
     }
 
     private var levelSum: Int64 { levelNodes.reduce(0) { $0 + $1.logicalBytes } }
@@ -35,8 +40,27 @@ struct TreemapView: View {
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if levelNodes.isEmpty {
-                    Text("No files found in this folder.").font(SDTheme.Font.body)
+                    if let f = focus, app.drillScanningID == f.id, let p = app.drillProgress {
+                        VStack(spacing: 8) {
+                            ProgressView()
+                            Text("Reading \(f.name)… \(p.itemsFound.formatted()) items found")
+                                .font(SDTheme.Font.body)
+                            Button("Cancel") { app.cancelDrill() }.buttonStyle(.bordered).controlSize(.small)
+                        }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let f = focus {
+                        VStack(spacing: 8) {
+                            Text("Couldn't read \(f.name)'s contents.").font(SDTheme.Font.body)
+                            Text("The folder may be offline or its access expired.")
+                                .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                            Button("Try Again") { app.ensureChildren(f) }.buttonStyle(.bordered).controlSize(.small)
+                            Button("Up") { _ = app.mapTrail.popLast() }.buttonStyle(.link).font(SDTheme.Font.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Text("No files found in this folder.").font(SDTheme.Font.body)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 } else {
                     mapBody(size: geo.size)
                 }
@@ -258,8 +282,12 @@ struct TreemapView: View {
     private func selected(_ node: ScanNode) -> Bool { app.inspectedNodeID == node.id }
 
     private func drill(_ node: ScanNode) {
-        guard node.isFolder, !(node.children ?? []).isEmpty else { return }
-        app.mapTrail.append(node)
+        guard node.isFolder, !node.isCloudPlaceholder else { return }
+        if !app.mapTrail.contains(where: { $0.id == node.id }) {
+            app.mapTrail.append(node)
+        }
         app.inspectedNodeID = node.id
+        // No retained children: read the folder under the existing grant.
+        app.ensureChildren(node)
     }
 }

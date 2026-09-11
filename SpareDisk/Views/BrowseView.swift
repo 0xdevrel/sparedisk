@@ -86,6 +86,8 @@ struct BrowseView: View {
 }
 
 // Hierarchical sortable list (§F04) — List-based for full VoiceOver + keyboard support.
+// Folders expand on demand: retained children show at once; deeper levels are
+// read under the existing grant when expanded (focused scans, §F02).
 struct FileListView: View {
     @Environment(AppState.self) private var app
     let nodes: [ScanNode]
@@ -102,20 +104,7 @@ struct FileListView: View {
         )) {
             Section {
                 ForEach(sorted) { node in
-                    if let kids = node.children, !kids.isEmpty {
-                        DisclosureGroup {
-                            ForEach(kids.sorted { $0.logicalBytes > $1.logicalBytes }) { kid in
-                                fileRow(kid)
-                                    .tag(kid.id)
-                            }
-                        } label: {
-                            fileRow(node)
-                                .tag(node.id)
-                        }
-                    } else {
-                        fileRow(node)
-                            .tag(node.id)
-                    }
+                    FolderRows(node: node, total: total, depth: 0)
                 }
             } header: {
                 HStack {
@@ -141,6 +130,69 @@ struct FileListView: View {
         guard let id = app.inspectedNodeID else { return nil }
         let pool = nodes + nodes.flatMap { $0.children ?? [] }
         return pool.first(where: { $0.id == id })
+    }
+}
+
+private struct FolderRows: View {
+    @Environment(AppState.self) private var app
+    let node: ScanNode
+    let total: Int64
+    let depth: Int
+
+    private var retained: [ScanNode]? { app.children(of: node) }
+    private var drilling: Bool { app.drillScanningID == node.id }
+    private var drillable: Bool {
+        node.isFolder && !node.isCloudPlaceholder && app.scopeForNode(node) != nil
+    }
+
+    var body: some View {
+        if node.isFolder && (retained != nil || drillable) {
+            DisclosureGroup(isExpanded: expanded) {
+                if let kids = retained {
+                    ForEach(kids.sorted { $0.logicalBytes > $1.logicalBytes }) { kid in
+                        if depth + 1 < 6 {
+                            FolderRows(node: kid, total: total, depth: depth + 1)
+                        } else {
+                            fileRow(kid).tag(kid.id)
+                        }
+                    }
+                } else if drilling {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        if let p = app.drillProgress {
+                            Text("Reading… \(p.itemsFound.formatted()) items found")
+                                .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Cancel") { app.cancelDrill() }
+                            .buttonStyle(.link).font(SDTheme.Font.secondary)
+                    }
+                    .frame(height: SDTheme.rowHeight)
+                } else {
+                    Button("Read contents") { app.ensureChildren(node) }
+                        .buttonStyle(.link).font(SDTheme.Font.secondary)
+                        .frame(height: SDTheme.rowHeight)
+                }
+            } label: {
+                fileRow(node).tag(node.id)
+            }
+        } else {
+            fileRow(node).tag(node.id)
+        }
+    }
+
+    private var expanded: Binding<Bool> {
+        Binding(
+            get: { app.expandedIDs.contains(node.id) },
+            set: { open in
+                if open {
+                    app.expandedIDs.insert(node.id)
+                    app.ensureChildren(node)
+                } else {
+                    app.expandedIDs.remove(node.id)
+                }
+            }
+        )
     }
 
     private func fileRow(_ node: ScanNode) -> some View {

@@ -78,9 +78,87 @@ extension AppState {
         scanTask?.cancel()
     }
 
+    // MARK: - Focused drill-down ("rescan focused folder", §F02)
+
+    /// Retained children for a node: embedded (mock / depth ≤ 2) or a
+    /// completed focused scan. Nil means unknown — expand to read them.
+    @MainActor
+    func children(of node: ScanNode) -> [ScanNode]? {
+        if let c = node.children, !c.isEmpty { return c }
+        return focusedScans[node.id]?.topNodes
+    }
+
+    /// Called when the user expands or drills into a folder whose contents
+    /// are not retained. Reads exactly that folder under the existing grant.
+    @MainActor
+    func ensureChildren(_ node: ScanNode) {
+        guard node.isFolder, !node.isCloudPlaceholder else { return }
+        guard children(of: node) == nil, drillScanningID != node.id else { return }
+        guard locations.contains(where: { CleanupService.isWithin(node.path, root: $0.id) }) else { return }
+        startDrill(node)
+    }
+
+    @MainActor
+    func cancelDrill() {
+        drillTask?.cancel()
+    }
+
+    @MainActor
+    private func startDrill(_ node: ScanNode) {
+        cancelDrill()
+        drillGeneration += 1
+        let gen = drillGeneration
+        let nodeURL = URL(fileURLWithPath: node.path)
+        let drillID = node.id
+        drillScanningID = drillID
+        drillProgress = ScanProgress(itemsFound: 0, elapsed: 0, currentPath: node.name)
+        drillTask = Task {
+            // Scope is the containing granted location; the scan root is the folder.
+            guard let locID = self.locations.first(where: { CleanupService.isWithin(node.path, root: $0.id) })?.id,
+                  let (scope, _) = try? LocationAccessService.resolve(id: locID) else {
+                self.drillScanningID = nil
+                self.drillProgress = nil
+                return
+            }
+            let accessing = scope.startAccessingSecurityScopedResource()
+            defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+            let (stream, continuation) = AsyncStream<ScanProgress>.makeStream()
+            let worker = Task.detached(priority: .userInitiated) {
+                // Namespaced under the folder path: ids can never collide
+                // with siblings elsewhere in the tree (P2 identity note).
+                let result = await ScanEngine.scan(locationID: "\(locID)#\(node.path)",
+                                                   rootName: node.name, root: nodeURL) { p in
+                    continuation.yield(p)
+                }
+                continuation.finish()
+                await MainActor.run { self.applyDrill(result, parentID: drillID, gen: gen) }
+            }
+            continuation.onTermination = { _ in worker.cancel() }
+            for await p in stream {
+                guard gen == self.drillGeneration else { break }
+                if Task.isCancelled { break }
+                self.drillProgress = p
+            }
+            await worker.value
+            guard gen == self.drillGeneration else { return }
+            self.drillScanningID = nil
+            self.drillProgress = nil
+        }
+    }
+
+    @MainActor
+    private func applyDrill(_ result: ScanResult, parentID: String, gen: Int) {
+        guard !result.wasCancelled, gen == drillGeneration else { return }
+        focusedScans[parentID] = result
+    }
+
     @MainActor
     func forgetLocation(id: String) {
         cancelScan()
+        cancelDrill()
+        drillGeneration += 1
+        drillScanningID = nil
+        drillProgress = nil
         // Invalidate any unwinding worker so it cannot re-apply results,
         // and clear progress if it belonged to this location.
         scanGeneration += 1
@@ -91,7 +169,12 @@ extension AppState {
         LocationAccessService.forget(id: id)
         locations.removeAll(where: { $0.id == id })
         scans.removeValue(forKey: id)
+        focusedScans = focusedScans.filter { !(keyIs($0.key, withinLocation: id)) }
         if activeLocationID == id { activeLocationID = locations.first?.id ?? "home" }
+    }
+
+    private func keyIs(_ key: String, withinLocation id: String) -> Bool {
+        key == id || key.hasPrefix(id + "/") || key.hasPrefix(id + "#")
     }
 
     // MARK: - Internals
@@ -99,6 +182,9 @@ extension AppState {
     @MainActor
     private func startScan(locationID: String, url: URL) {
         cancelScan()
+        // A fresh location scan invalidates focused drills (their basis changed).
+        cancelDrill()
+        drillGeneration += 1
         // Own this run: stale workers and their progress never touch current state (P1).
         scanGeneration += 1
         let gen = scanGeneration
@@ -144,6 +230,8 @@ extension AppState {
         // never an error state, never stale data over a newer scan.
         guard !result.wasCancelled, gen == scanGeneration else { return }
         self.scans[locationID] = result
+        // Fresh results invalidate focused drills into the old tree.
+        self.focusedScans = self.focusedScans.filter { !(self.keyIs($0.key, withinLocation: locationID)) }
         if let i = self.locations.firstIndex(where: { $0.id == locationID }) {
             self.locations[i].scannedBytes = result.totalBytes
             self.locations[i].scannedAt = result.finishedAt

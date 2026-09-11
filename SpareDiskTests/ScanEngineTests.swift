@@ -55,4 +55,14 @@ struct ScanEngineTests {
         let live = ScanEngine.identityNumbers(for: URL(fileURLWithPath: one.path))
         #expect(CleanupService.identityMatches(node: one, fileNumber: live.0, volumeNumber: live.1))
     }
+
+    @Test func drillScanReadsFocusedFolder() async throws {
+        let root = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let alpha = root.appendingPathComponent("alpha")
+        let result = await ScanEngine.scan(locationID: "t#\(alpha.path)", rootName: "alpha", root: alpha) { _ in }
+        #expect(!result.wasCancelled)
+        #expect(result.topNodes.map(\.name) == ["two.txt", "one.txt"])
+        #expect(result.totalBytes == 300)
+    }
 }

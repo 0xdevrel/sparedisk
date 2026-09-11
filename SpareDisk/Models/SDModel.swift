@@ -181,6 +181,15 @@ final class AppState {
     var scanTask: Task<Void, Never>?
     /// Monotonic run id: stale workers/progress never touch current state (P1).
     var scanGeneration = 0
+    /// Focused drill-down scans: parent node id -> that folder's contents.
+    /// Bounded by user navigation (one aggregate per drilled folder), cleared
+    /// whenever the parent location is rescanned or forgotten.
+    var focusedScans: [String: ScanResult] = [:]
+    var drillScanningID: String?
+    var drillProgress: ScanProgress?
+    var drillTask: Task<Void, Never>?
+    var drillGeneration = 0
+    var expandedIDs: Set<String> = []
 
     // MARK: - Cleanup execution state (§F10)
     var cleanupRunning = false
@@ -206,6 +215,7 @@ final class AppState {
             return nil
         }
         let realNodes = scans.values.flatMap { $0.topNodes + $0.largestFiles + $0.oldestFiles }
+            + focusedScans.values.flatMap(\.topNodes)
         if let found = find(realNodes) { return found }
         if let queued = reviewItems.first(where: { $0.node.id == id }) { return queued.node }
         return hasRealData ? nil : find(MockData.topLevel + MockData.largeFiles)
@@ -225,6 +235,7 @@ final class AppState {
             nodes.contains { ($0.id == node.id && $0.path == node.path) || contains($0.children ?? []) }
         }
         return scans.values.contains { contains($0.topNodes + $0.largestFiles + $0.oldestFiles) }
+            || focusedScans.values.contains { contains($0.topNodes) }
     }
 
     func toggleReview(_ node: ScanNode, source: String) {
