@@ -46,6 +46,10 @@ nonisolated enum DuplicateService {
     /// verified set. `onEvent` must be thread-safe (detached worker).
     static func findDuplicates(files: [ScanNode],
                                onEvent: @escaping (DuplicateProgress) -> Void) async -> (groups: [DuplicateGroup], skipped: [DuplicateSkip]) {
+        // Reading tens of gigabytes must not starve the interface or other
+        // apps: this thread yields the disk to anything with normal priority.
+        setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_THROTTLE)
+        defer { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_DEFAULT) }
         var skipped: [DuplicateSkip] = []
         // 1. Eligible: size floor, regular local files only.
         var eligible: [ScanNode] = []
@@ -118,6 +122,8 @@ nonisolated enum DuplicateService {
                         digestBuckets[try shaFile(url: URL(fileURLWithPath: f.path)) { read in
                             bytesDone += read; report(f.name)
                         }, default: []].append(f)
+                        checked += 1
+                        report(f.name, force: true)
                     } catch {
                         skipped.append(skip(f, reason: "Could not be read."))
                     }
@@ -150,9 +156,11 @@ nonisolated enum DuplicateService {
                                                  files: sorted))
                 }
             }
-            checked += fresh.count
-            // Files that dropped out early still count as read for the estimate.
-            bytesDone += sameSize.reduce(0) { $0 + $1.logicalBytes } * 2
+            // Files that dropped out before hashing still count for the estimate.
+            let hashed = sampleBuckets.values.filter { $0.count > 1 }.reduce(0) { $0 + $1.count }
+            checked += max(0, fresh.count - hashed)
+            bytesDone = min(bytesTotal, bytesDone + sameSize.reduce(0) { $0 + $1.logicalBytes } * 2
+                            - Int64(hashed) * (sameSize.first?.logicalBytes ?? 0) * 2)
             report(sameSize[0].name, force: true)
         }
         groups.sort { $0.redundantLogicalBytes > $1.redundantLogicalBytes }

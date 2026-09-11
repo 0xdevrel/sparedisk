@@ -71,7 +71,7 @@ extension AppState {
         }
         duplicateTotal = runnable.count
         let (stream, continuation) = AsyncStream<DuplicateProgress>.makeStream()
-        let worker = Task.detached(priority: .userInitiated) {
+        let worker = Task.detached(priority: .utility) {
             let result = await DuplicateService.findDuplicates(files: runnable) { p in
                 continuation.yield(p)
             }

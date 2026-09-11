@@ -11,12 +11,6 @@ struct DuplicatesView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScreenBar {
                 if app.duplicateRunning {
-                    if app.duplicateBytesTotal > 0 {
-                        ProgressView(value: Double(app.duplicateBytesDone), total: Double(max(app.duplicateBytesTotal, 1)))
-                            .progressViewStyle(.linear).frame(width: 140)
-                    } else {
-                        ProgressView().controlSize(.small)
-                    }
                     Text(progressLine).lineLimit(1)
                 } else if !app.duplicateGroups.isEmpty {
                     Text("\(app.duplicateGroups.count) groups, \(SDFormat.bytesString(redundantTotal)) redundant")
@@ -119,7 +113,7 @@ struct DuplicatesView: View {
 
     private var progressLine: String {
         if app.duplicateBytesTotal > 0 {
-            return "\(SDFormat.bytesString(app.duplicateBytesDone)) of \(SDFormat.bytesString(app.duplicateBytesTotal)) read, \(app.duplicateChecked) of \(app.duplicateTotal) files. \(app.duplicateCurrent ?? "")"
+            return "Comparing \(app.duplicateChecked) of \(app.duplicateTotal) candidates"
         }
         if app.duplicateTotal > 0 { return "Grouping \(app.duplicateTotal) files by size" }
         return "Starting"

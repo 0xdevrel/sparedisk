@@ -114,7 +114,7 @@ struct ReviewQueueView: View {
         }
         .animation(.default, value: app.reviewItems.map(\.id))
         .dropDestination(for: URL.self) { urls, _ in
-            app.stage(urls: urls, source: "Drag") > 0
+            _ = app.stage(urls: urls, source: "Drag")
         }
         .sheet(isPresented: $confirming) {
             VStack(alignment: .leading, spacing: 12) {

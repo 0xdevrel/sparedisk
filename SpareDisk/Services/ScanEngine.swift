@@ -597,7 +597,7 @@ nonisolated enum ScanEngine {
     }
 }
 
-extension ScanEngine.Agg {
+nonisolated extension ScanEngine.Agg {
     /// Fold one visit. `own` is passed only on the entry's own visit, so a
     /// directory's mtime is its own, never a descendant summary (P1).
     /// Merge another worker's aggregate for the same entry.
