@@ -10,7 +10,8 @@ import Foundation
 //   ... attributesOfItem per file for link counts ................ 47 s
 //   enumerator with no keys + one lstat per item ................. 34 s
 // One lstat yields type, size, allocation, mtime, link count, inode,
-// device and the dataless flag, so nothing else is asked per item.
+// device and the dataless flag, so nothing else is asked per item. The walk
+// runs one worker per core over a shared directory queue.
 struct ScanProgress: Hashable {
     var itemsFound: Int
     var elapsed: TimeInterval
@@ -95,50 +96,32 @@ enum ScanEngine {
     ]
 
     /// Async shell: runs wherever the caller puts it (detached worker in the
-    /// app). The walk itself is synchronous so there is no async-context
-    /// enumerator use and no MainActor hops inside the loop.
+    /// app). The walk itself is synchronous and parallel: a shared queue of
+    /// directories feeds one worker per core, each with private aggregation
+    /// state that is merged at the end. No MainActor hops inside the loop.
     static func scan(locationID: String, rootName: String, root: URL,
                      onProgress: @escaping (ScanProgress) -> Void) async -> ScanResult {
         let started = Date()
-        // Issues are collected in a reference box: the enumerator's error
-        // handler runs re-entrantly from `nextObject()` while `walk` holds
-        // the accumulation struct `inout`. Sharing one struct between the two
-        // is an exclusivity violation that aborts the process.
-        let issues = IssueBox()
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: [],
-            options: [.producesRelativePathURLs],
-            errorHandler: { url, error -> Bool in
-                issues.append(ScanIssue(path: url.path, message: (error as NSError).localizedDescription))
-                return true // continue after ordinary per-item failures
-            }) else {
-            return ScanResult(locationID: locationID, rootName: rootName, totalBytes: 0,
-                              itemCount: 0, topNodes: [], issues: issues.items,
-                              startedAt: started, finishedAt: Date(), wasCancelled: false)
-        }
-
-        var state = WalkState()
         let rootPath = root.standardizedFileURL.path
-        walk(enumerator: enumerator, rootPath: rootPath, locationID: locationID, started: started,
-             state: &state, shouldStop: { Task.isCancelled },
-             onBatch: { count, name, partial, bytes, alloc in
-            // Called on the worker thread; the handler must be thread-safe
-            // (the app yields into an AsyncStream here, no UI work).
-            onProgress(ScanProgress(itemsFound: count, elapsed: Date().timeIntervalSince(started),
-                                    currentPath: name, partialTop: partial, partialBytes: bytes,
-                                    partialAllocated: alloc))
-        })
-
+        let cancel = CancelFlag()
+        let walker = ParallelWalk(rootPath: rootPath, locationID: locationID, started: started,
+                                  cancel: cancel, onProgress: onProgress)
+        let (state, issues) = await withTaskCancellationHandler {
+            walker.run()
+        } onCancel: {
+            cancel.set()
+        }
         return ScanResult(locationID: locationID, rootName: rootName, totalBytes: state.total,
                           totalAllocated: state.totalAlloc,
                           itemCount: state.count,
                           topNodes: buildTree(state: state, locationID: locationID, rootPath: rootPath),
                           largestFiles: state.largest, oldestFiles: state.oldest,
-                          issues: issues.items,
+                          issues: issues,
                           startedAt: started, finishedAt: Date(),
-                          wasCancelled: Task.isCancelled)
+                          wasCancelled: cancel.isSet || Task.isCancelled)
     }
+
+    static var workerCount: Int { max(2, min(8, ProcessInfo.processInfo.activeProcessorCount)) }
 
     // MARK: - Aggregation state
 
@@ -161,12 +144,12 @@ enum ScanEngine {
         var dataless = false
     }
 
-    private struct FileIdentity: Hashable {
+    fileprivate struct FileIdentity: Hashable {
         var dev: UInt64
         var ino: UInt64
     }
 
-    private struct WalkState {
+    fileprivate struct WalkState {
         var total: Int64 = 0
         var totalAlloc: Int64 = 0
         var count = 0
@@ -176,12 +159,12 @@ enum ScanEngine {
         /// these totals; deep files surface via the largest/oldest rankings
         /// and via focused drill-down scans.
         var sub: [String: Agg] = [:]
-        var seenLinks = Set<FileIdentity>()
+        /// Hard-linked files this worker counted, for cross-worker reconciliation.
+        var links: [FileIdentity: LinkHit] = [:]
         var largest: [ScanNode] = []
         var smallestTracked: Int64 = 0
         var oldest: [ScanNode] = []
         var newestTracked: Date = .distantFuture
-        var lastEmit = Date.distantPast
     }
 
     /// One lstat's worth of facts.
@@ -217,92 +200,267 @@ enum ScanEngine {
         flags & UInt32(SF_DATALESS) != 0
     }
 
-    // MARK: - Synchronous walk
+    // MARK: - Parallel walk
 
-    private static func walk(enumerator: FileManager.DirectoryEnumerator,
-                             rootPath: String,
-                             locationID: String,
-                             started: Date,
-                             state: inout WalkState,
-                             shouldStop: () -> Bool,
-                             onBatch: (Int, String, [ScanNode], Int64, Int64) -> Void) {
-        while let url = enumerator.nextObject() as? URL {
-            if shouldStop() { break }
-            let rel = url.relativePath
-            guard !rel.isEmpty else { continue }
-            let full = rootPath + "/" + rel
-            guard let st = lstat(path: full) else { continue }
-            if st.isLink { continue } // never followed, never counted (§F02)
+    final class CancelFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        func set() { lock.lock(); value = true; lock.unlock() }
+        var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    }
 
-            // Components without allocating an array: top, optional second, depth.
-            var top = Substring(rel)
-            var second: Substring?
-            var depth = 0
-            if let i = rel.firstIndex(of: "/") {
-                top = rel[..<i]
-                depth = 1
-                let after = rel.index(after: i)
-                if let j = rel[after...].firstIndex(of: "/") {
-                    second = rel[after..<j]
-                    depth = 2 // or deeper; treated the same
-                } else {
-                    second = rel[after...]
-                }
-            }
-            let name = url.lastPathComponent
-            let ext = (name as NSString).pathExtension.lowercased()
-            let isPkg = st.isDir && !ext.isEmpty && packageExtensions.contains(ext)
+    /// A hard-linked file seen by one worker; used to reconcile links that
+    /// different workers counted independently.
+    fileprivate struct LinkHit {
+        var top: String
+        var sub: String?
+        var bytes: Int64
+        var alloc: Int64
+    }
 
-            // Hard links: repeat sightings of one inode contribute no bytes,
-            // so totals count unique content like `du` (P2 accounting).
-            var duplicateLink = false
-            if !st.isDir, st.links > 1 {
-                duplicateLink = !state.seenLinks.insert(FileIdentity(dev: st.dev, ino: st.ino)).inserted
-            }
-            let bytes = st.isDir || duplicateLink ? 0 : st.size
-            let alloc = st.isDir || duplicateLink ? 0 : st.allocated
+    fileprivate final class ParallelWalk: @unchecked Sendable {
+        let rootPath: String
+        let locationID: String
+        let started: Date
+        let cancel: CancelFlag
+        let onProgress: (ScanProgress) -> Void
 
-            state.agg[String(top), default: Agg()].fold(bytes: bytes, alloc: alloc, own: depth == 0 ? st : nil,
-                                                         name: name, ext: ext, isPkg: isPkg)
-            if let second {
-                state.sub[String(top) + "/" + String(second), default: Agg()]
-                    .fold(bytes: bytes, alloc: alloc, own: depth == 1 ? st : nil, name: name, ext: ext, isPkg: isPkg)
-            }
-            state.total += bytes
-            state.totalAlloc += alloc
-            state.count += 1
+        private let cond = NSCondition()
+        private var queue: [String] = [""]
+        private var inFlight = 0
 
-            // File-level candidates: never package/library/git interiors.
-            if st.isRegular, !insidePackage(rel: rel) {
-                let wantsLargest = st.size > state.smallestTracked || state.largest.count < candidateCap
-                let wantsOldest = st.modified != nil
-                    && (st.modified! < state.newestTracked || state.oldest.count < candidateCap)
-                if wantsLargest || wantsOldest {
-                    let node = ScanNode(id: "\(locationID)#\(full)", name: name, path: full,
-                                        isFolder: false, category: category(name: name, ext: ext, isDir: false),
-                                        logicalBytes: st.size, modified: st.modified, childCount: 0,
-                                        isCloudPlaceholder: st.dataless,
-                                        fsFileNumber: st.ino, fsVolumeNumber: st.dev,
-                                        allocatedBytes: st.allocated, hardLinkCount: st.links)
-                    if wantsLargest {
-                        insertSorted(&state.largest, node) { $0.logicalBytes > $1.logicalBytes }
-                        if state.largest.count > candidateCap { state.largest.removeLast() }
-                        state.smallestTracked = state.largest.last?.logicalBytes ?? 0
-                    }
-                    if wantsOldest {
-                        insertSorted(&state.oldest, node) { ($0.modified ?? .distantPast) < ($1.modified ?? .distantPast) }
-                        if state.oldest.count > candidateCap { state.oldest.removeLast() }
-                        state.newestTracked = state.oldest.last?.modified ?? .distantFuture
+        private let progressLock = NSLock()
+        private var sharedCount = 0
+        private var lastEmitCount = 0
+        private var lastEmit = Date.distantPast
+        private var snapshots: [[String: Agg]]
+        private var snapshotTotals: [(Int64, Int64)]
+        private let issues = IssueBox()
+
+        init(rootPath: String, locationID: String, started: Date, cancel: CancelFlag,
+             onProgress: @escaping (ScanProgress) -> Void) {
+            self.rootPath = rootPath; self.locationID = locationID; self.started = started
+            self.cancel = cancel; self.onProgress = onProgress
+            snapshots = Array(repeating: [:], count: ScanEngine.workerCount)
+            snapshotTotals = Array(repeating: (0, 0), count: ScanEngine.workerCount)
+        }
+
+        func run() -> (WalkState, [ScanIssue]) {
+            let n = ScanEngine.workerCount
+            var states = Array(repeating: WalkState(), count: n)
+            let statesLock = NSLock()
+            DispatchQueue.concurrentPerform(iterations: n) { index in
+                var local = WalkState()
+                var links: [FileIdentity: LinkHit] = [:]
+                var sinceSnapshot = 0
+                while let dir = nextDirectory() {
+                    let added = process(dir: dir, state: &local, links: &links)
+                    finished(dir: dir)
+                    sinceSnapshot += added
+                    if sinceSnapshot >= 256 {
+                        publish(index: index, state: local, added: sinceSnapshot)
+                        sinceSnapshot = 0
                     }
                 }
+                publish(index: index, state: local, added: sinceSnapshot, force: false)
+                local.links = links
+                statesLock.lock(); states[index] = local; statesLock.unlock()
             }
+            return (merge(states), issues.items)
+        }
 
-            if state.count % batchSize == 0
-                || (state.count % 256 == 0 && Date().timeIntervalSince(state.lastEmit) > batchInterval) {
-                state.lastEmit = Date()
-                onBatch(state.count, name, partialTop(state: state, locationID: locationID, rootPath: rootPath),
-                        state.total, state.totalAlloc)
+        // MARK: Queue
+
+        private func nextDirectory() -> String? {
+            cond.lock()
+            defer { cond.unlock() }
+            while queue.isEmpty && inFlight > 0 && !cancel.isSet { cond.wait() }
+            if cancel.isSet || queue.isEmpty { return nil }
+            inFlight += 1
+            return queue.removeLast()
+        }
+
+        private func finished(dir: String) {
+            cond.lock()
+            inFlight -= 1
+            cond.broadcast()
+            cond.unlock()
+        }
+
+        private func enqueue(_ dirs: [String]) {
+            guard !dirs.isEmpty else { return }
+            cond.lock()
+            queue.append(contentsOf: dirs)
+            cond.broadcast()
+            cond.unlock()
+        }
+
+        // MARK: Work
+
+        /// Reads one directory, folds its children, queues subdirectories.
+        /// Returns the number of items folded.
+        private func process(dir: String, state: inout WalkState, links: inout [FileIdentity: LinkHit]) -> Int {
+            let full = dir.isEmpty ? rootPath : rootPath + "/" + dir
+            let names: [String]
+            do {
+                names = try FileManager.default.contentsOfDirectory(atPath: full)
+            } catch {
+                issues.append(ScanIssue(path: full, message: (error as NSError).localizedDescription))
+                return 0
             }
+            var subdirs: [String] = []
+            var added = 0
+            for name in names {
+                if cancel.isSet { break }
+                let rel = dir.isEmpty ? name : dir + "/" + name
+                let path = rootPath + "/" + rel
+                guard let st = ScanEngine.lstat(path: path) else { continue }
+                if st.isLink { continue } // never followed, never counted (§F02)
+
+                // Components without allocating an array: top, optional second, depth.
+                var top = Substring(rel)
+                var second: Substring?
+                var depth = 0
+                if let i = rel.firstIndex(of: "/") {
+                    top = rel[..<i]
+                    depth = 1
+                    let after = rel.index(after: i)
+                    if let j = rel[after...].firstIndex(of: "/") {
+                        second = rel[after..<j]
+                        depth = 2
+                    } else {
+                        second = rel[after...]
+                    }
+                }
+                let ext = (name as NSString).pathExtension.lowercased()
+                let isPkg = st.isDir && !ext.isEmpty && ScanEngine.packageExtensions.contains(ext)
+
+                // Hard links: one inode contributes bytes once per worker;
+                // cross-worker repeats are reconciled in `merge`.
+                var duplicateLink = false
+                if !st.isDir, st.links > 1 {
+                    let key = FileIdentity(dev: st.dev, ino: st.ino)
+                    if links[key] != nil {
+                        duplicateLink = true
+                    } else {
+                        links[key] = LinkHit(top: String(top), sub: second.map { String(top) + "/" + String($0) },
+                                             bytes: st.size, alloc: st.allocated)
+                    }
+                }
+                let bytes = st.isDir || duplicateLink ? 0 : st.size
+                let alloc = st.isDir || duplicateLink ? 0 : st.allocated
+
+                state.agg[String(top), default: Agg()].fold(bytes: bytes, alloc: alloc, own: depth == 0 ? st : nil,
+                                                             name: name, ext: ext, isPkg: isPkg)
+                if let second {
+                    state.sub[String(top) + "/" + String(second), default: Agg()]
+                        .fold(bytes: bytes, alloc: alloc, own: depth == 1 ? st : nil, name: name, ext: ext, isPkg: isPkg)
+                }
+                state.total += bytes
+                state.totalAlloc += alloc
+                state.count += 1
+                added += 1
+
+                if st.isDir {
+                    subdirs.append(rel)
+                } else if st.isRegular, !ScanEngine.insidePackage(rel: rel) {
+                    ScanEngine.consider(candidate: st, name: name, path: path, ext: ext,
+                                        locationID: locationID, state: &state)
+                }
+            }
+            enqueue(subdirs)
+            return added
+        }
+
+        // MARK: Progress
+
+        private func publish(index: Int, state: WalkState, added: Int, force: Bool = false) {
+            progressLock.lock()
+            snapshots[index] = state.agg
+            snapshotTotals[index] = (state.total, state.totalAlloc)
+            sharedCount += added
+            let now = Date()
+            let due = sharedCount - lastEmitCount >= ScanEngine.batchSize
+                || now.timeIntervalSince(lastEmit) > ScanEngine.batchInterval
+            guard due, sharedCount > lastEmitCount else { progressLock.unlock(); return }
+            lastEmit = now
+            lastEmitCount = sharedCount
+            var merged: [String: Agg] = [:]
+            for snap in snapshots {
+                for (k, v) in snap {
+                    if var e = merged[k] { e.add(v); merged[k] = e } else { merged[k] = v }
+                }
+            }
+            let totals = snapshotTotals.reduce((Int64(0), Int64(0))) { ($0.0 + $1.0, $0.1 + $1.1) }
+            let count = sharedCount
+            progressLock.unlock()
+            let partial = merged.map { name, e in
+                ScanEngine.node(id: "\(locationID)/\(name)", name: name, path: rootPath + "/" + name, agg: e)
+            }.sorted { $0.logicalBytes > $1.logicalBytes }
+            onProgress(ScanProgress(itemsFound: count, elapsed: now.timeIntervalSince(started),
+                                    currentPath: partial.first?.name ?? "",
+                                    partialTop: partial, partialBytes: totals.0, partialAllocated: totals.1))
+        }
+
+        // MARK: Merge
+
+        private func merge(_ states: [WalkState]) -> WalkState {
+            var out = WalkState()
+            var seen: [FileIdentity: Bool] = [:]
+            for s in states {
+                for (k, v) in s.agg { if var e = out.agg[k] { e.add(v); out.agg[k] = e } else { out.agg[k] = v } }
+                for (k, v) in s.sub { if var e = out.sub[k] { e.add(v); out.sub[k] = e } else { out.sub[k] = v } }
+                out.total += s.total
+                out.totalAlloc += s.totalAlloc
+                out.count += s.count
+                // A link counted by two workers: keep the first, subtract the second.
+                for (id, hit) in s.links {
+                    if seen[id] == true {
+                        out.total -= hit.bytes
+                        out.totalAlloc -= hit.alloc
+                        out.agg[hit.top]?.bytes -= hit.bytes
+                        out.agg[hit.top]?.alloc -= hit.alloc
+                        if let sub = hit.sub {
+                            out.sub[sub]?.bytes -= hit.bytes
+                            out.sub[sub]?.alloc -= hit.alloc
+                        }
+                    } else {
+                        seen[id] = true
+                    }
+                }
+                out.largest.append(contentsOf: s.largest)
+                out.oldest.append(contentsOf: s.oldest)
+            }
+            out.largest.sort { $0.logicalBytes > $1.logicalBytes }
+            if out.largest.count > candidateCap { out.largest.removeLast(out.largest.count - candidateCap) }
+            out.oldest.sort { ($0.modified ?? .distantPast) < ($1.modified ?? .distantPast) }
+            if out.oldest.count > candidateCap { out.oldest.removeLast(out.oldest.count - candidateCap) }
+            return out
+        }
+    }
+
+    /// Track a regular file in the bounded largest/oldest rankings.
+    fileprivate static func consider(candidate st: Stat, name: String, path: String, ext: String,
+                                     locationID: String, state: inout WalkState) {
+        let wantsLargest = st.size > state.smallestTracked || state.largest.count < candidateCap
+        let wantsOldest = st.modified != nil
+            && (st.modified! < state.newestTracked || state.oldest.count < candidateCap)
+        guard wantsLargest || wantsOldest else { return }
+        let node = ScanNode(id: "\(locationID)#\(path)", name: name, path: path,
+                            isFolder: false, category: category(name: name, ext: ext, isDir: false),
+                            logicalBytes: st.size, modified: st.modified, childCount: 0,
+                            isCloudPlaceholder: st.dataless,
+                            fsFileNumber: st.ino, fsVolumeNumber: st.dev,
+                            allocatedBytes: st.allocated, hardLinkCount: st.links)
+        if wantsLargest {
+            insertSorted(&state.largest, node) { $0.logicalBytes > $1.logicalBytes }
+            if state.largest.count > candidateCap { state.largest.removeLast() }
+            state.smallestTracked = state.largest.last?.logicalBytes ?? 0
+        }
+        if wantsOldest {
+            insertSorted(&state.oldest, node) { ($0.modified ?? .distantPast) < ($1.modified ?? .distantPast) }
+            if state.oldest.count > candidateCap { state.oldest.removeLast() }
+            state.newestTracked = state.oldest.last?.modified ?? .distantFuture
         }
     }
 
@@ -317,7 +475,7 @@ enum ScanEngine {
     }
 
     /// Any ancestor directory carrying a package extension, or `.git`.
-    private static func insidePackage(rel: String) -> Bool {
+    fileprivate static func insidePackage(rel: String) -> Bool {
         var start = rel.startIndex
         while let slash = rel[start...].firstIndex(of: "/") {
             let comp = rel[start..<slash]
@@ -333,13 +491,7 @@ enum ScanEngine {
 
     // MARK: - Tree assembly
 
-    private static func partialTop(state: WalkState, locationID: String, rootPath: String) -> [ScanNode] {
-        state.agg.map { name, e in
-            node(id: "\(locationID)/\(name)", name: name, path: rootPath + "/" + name, agg: e)
-        }.sorted { $0.logicalBytes > $1.logicalBytes }
-    }
-
-    private static func buildTree(state: WalkState, locationID: String, rootPath: String) -> [ScanNode] {
+    fileprivate static func buildTree(state: WalkState, locationID: String, rootPath: String) -> [ScanNode] {
         // Group second-level aggregates under their top entry once, not per top.
         var childrenByTop: [String: [ScanNode]] = [:]
         for (key, s) in state.sub {
@@ -359,7 +511,7 @@ enum ScanEngine {
         }.sorted { $0.logicalBytes > $1.logicalBytes }
     }
 
-    private static func node(id: String, name: String, path: String, agg e: Agg) -> ScanNode {
+    fileprivate static func node(id: String, name: String, path: String, agg e: Agg) -> ScanNode {
         ScanNode(id: id, name: name, path: path,
                  isFolder: e.isDir, isPackage: e.isPkg, category: e.cat,
                  logicalBytes: e.bytes, modified: e.own,
@@ -438,6 +590,14 @@ enum ScanEngine {
 extension ScanEngine.Agg {
     /// Fold one visit. `own` is passed only on the entry's own visit, so a
     /// directory's mtime is its own, never a descendant summary (P1).
+    /// Merge another worker's aggregate for the same entry.
+    fileprivate mutating func add(_ o: ScanEngine.Agg) {
+        bytes += o.bytes
+        alloc += o.alloc
+        count += o.count
+        if o.own != nil { own = o.own; isDir = o.isDir; isPkg = o.isPkg; cat = o.cat; dataless = o.dataless }
+    }
+
     fileprivate mutating func fold(bytes: Int64, alloc: Int64, own: ScanEngine.Stat?, name: String, ext: String, isPkg: Bool) {
         self.bytes += bytes
         self.alloc += alloc
