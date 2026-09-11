@@ -9,6 +9,13 @@ struct ContentView: View {
         return false
     }
 
+    private var showsViewPicker: Bool {
+        switch app.selection {
+        case .location, .largeFiles, .olderFiles, .duplicates: true
+        default: false
+        }
+    }
+
     private var title: String {
         switch app.selection {
         case .overview: "Overview"
@@ -73,6 +80,8 @@ struct ContentView: View {
                             .help("Rescan this location (⌘R)")
                             .disabled(app.activeLocation == nil)
                     }
+                }
+                if showsViewPicker {
                     Picker("View", selection: $app.viewMode) {
                         Label("List", systemImage: "list.bullet").tag(SDViewMode.list)
                         Label("Map", systemImage: "square.grid.2x2").tag(SDViewMode.map)
@@ -87,6 +96,14 @@ struct ContentView: View {
                     app.showInspector.toggle()
                 }.help("Toggle inspector (⌘I)")
             }
+        }
+        .alert(app.directTrashItem.map { "Move “\($0.node.name)” to the Trash?" } ?? "",
+               isPresented: Binding(get: { app.directTrashItem != nil }, set: { if !$0 { app.directTrashItem = nil } }),
+               presenting: app.directTrashItem) { _ in
+            Button("Move to Trash", role: .destructive) { app.confirmDirectTrash() }
+            Button("Cancel", role: .cancel) { app.directTrashItem = nil }
+        } message: { item in
+            Text("\(SDFormat.bytesString(item.node.logicalBytes)). The item is checked again first. Space is freed when you empty the Trash.")
         }
         .sheet(isPresented: $app.showAbout) { AboutView() }
         .sheet(isPresented: $app.showScanIssues) { ScanIssuesView() }

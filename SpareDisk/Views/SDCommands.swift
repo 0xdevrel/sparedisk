@@ -29,6 +29,9 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(app.inspectedNode.map { app.canReview($0) } != true)
+            Button("Move to Trash…") { if let n = app.inspectedNode { app.requestTrash(n) } }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(app.inspectedNode.map { app.canReview($0) } != true)
             Divider()
             Button("Quick Look") { if let n = app.inspectedNode { app.preview(n) } }
                 .keyboardShortcut("y", modifiers: .command)

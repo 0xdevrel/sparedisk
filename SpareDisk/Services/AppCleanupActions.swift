@@ -5,13 +5,29 @@ import Foundation
 // confirms. Only moved items (and descendants of moved folders) leave the
 // queue; everything else stays with its reason. Never executes on relaunch.
 extension AppState {
+    /// Ask to move one item straight to the Trash. Same revalidation and
+    /// confirmation as the queue, without staging first.
     @MainActor
-    func runCleanup() async {
+    func requestTrash(_ node: ScanNode) {
+        guard canReview(node) else { return }
+        directTrashItem = ReviewItem(id: node.id, node: node, source: "Direct", reason: "Direct",
+                                     risk: node.isFolder ? "Folder" : "File")
+    }
+
+    @MainActor
+    func confirmDirectTrash() {
+        guard let item = directTrashItem else { return }
+        directTrashItem = nil
+        cleanupTask = Task { await runCleanup(items: [item]) }
+    }
+
+    @MainActor
+    func runCleanup(items overridePlan: [ReviewItem]? = nil) async {
         cleanupResults = []
         lastCleanupSummary = nil
         // A verified group's last remaining copy is never staged (F07).
         let (keptPlan, keeperSkips) = DuplicateService.protectKeepers(
-            plan: reviewPlan, groups: duplicateGroups, keepers: duplicateKeepers)
+            plan: overridePlan.map(CleanupService.normalize) ?? reviewPlan, groups: duplicateGroups, keepers: duplicateKeepers)
         let plan = keptPlan
         guard !plan.isEmpty else {
             cleanupResults = keeperSkips

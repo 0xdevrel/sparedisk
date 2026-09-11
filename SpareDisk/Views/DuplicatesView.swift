@@ -63,13 +63,15 @@ struct DuplicatesView: View {
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if app.viewMode == .map {
+                TreemapView(nodes: filteredGroups.flatMap(\.files), rootTitle: "Duplicates")
             } else {
-                List {
+                List(selection: Binding(get: { app.inspectedNodeID }, set: { app.inspectedNodeID = $0 })) {
                     ForEach(filteredGroups) { group in
                         Section {
                             groupHeader(group)
                             ForEach(group.files) { file in
-                                fileRow(file, group: group)
+                                fileRow(file, group: group).tag(file.id)
                             }
                         }
                     }
@@ -171,19 +173,14 @@ struct DuplicatesView: View {
             }
             Spacer()
             MonospaceBytes(bytes: file.logicalBytes)
-            Button(app.isQueued(file.id) ? "Queued" : "Review") {
-                app.toggleReview(file, source: "Duplicates")
-                app.inspectedNodeID = file.id
-            }
-            .buttonStyle(.link).font(SDTheme.Font.secondary)
-            .disabled(!app.canReview(file))
         }
         .frame(minHeight: SDTheme.rowHeight)
+        .contentShape(Rectangle())
         .contextMenu {
-            Button("Add to Review") { app.toggleReview(file, source: "Duplicates") }
-                .disabled(!app.canReview(file))
-            Button("Reveal in Finder") { app.reveal(file) }
-                .disabled(app.scopeForNode(file) == nil)
+            Button(file.id == keeper ? "Kept copy" : "Keep This Copy") { app.duplicateKeepers[group.id] = file.id }
+                .disabled(file.id == keeper)
+            Divider()
+            NodeContextMenu(node: file, source: "Duplicates")
         }
     }
 }

@@ -294,6 +294,8 @@ final class AppState {
     var cleanupResults: [CleanupResult] = []
     var cleanupTask: Task<Void, Never>?
     var lastCleanupSummary: String?
+    /// One item awaiting confirmation for a direct move to the Trash.
+    var directTrashItem: ReviewItem?
 
     // MARK: - Duplicate detection state (§F07, on demand only)
     var duplicateGroups: [DuplicateGroup] = []

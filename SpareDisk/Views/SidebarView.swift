@@ -52,7 +52,7 @@ struct SidebarView: View {
                 Label("Large Files", systemImage: "doc.text.magnifyingglass").tag(SDSidebarSelection.largeFiles)
                 Label("Older Files", systemImage: "calendar").tag(SDSidebarSelection.olderFiles)
                 HStack {
-                    Label("Duplicates", systemImage: "doc.on.doc").tag(SDSidebarSelection.duplicates)
+                    Label("Duplicates", systemImage: "doc.on.doc")
                     Spacer()
                     if !app.duplicateGroups.isEmpty && !app.duplicateRunning {
                         Text("\(app.duplicateGroups.count)")
@@ -61,6 +61,7 @@ struct SidebarView: View {
                             .background(.quaternary, in: Capsule())
                     }
                 }
+                .tag(SDSidebarSelection.duplicates)
             }
             Section("Cleanup") {
                 HStack {

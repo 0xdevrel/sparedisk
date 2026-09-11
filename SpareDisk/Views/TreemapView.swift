@@ -12,6 +12,8 @@ struct TreemapView: View {
     let nodes: [ScanNode]
     /// Embedded in Overview: no breadcrumb, no drilling, click opens Browse.
     var embedded = false
+    /// Breadcrumb root label when the map is not a location (Find screens).
+    var rootTitle: String?
 
     private var focus: ScanNode? { app.mapTrail.last }
 
@@ -48,7 +50,7 @@ struct TreemapView: View {
             Button {
                 app.mapTrail.removeAll()
             } label: {
-                Label(app.activeLocation?.name ?? "Top", systemImage: "folder")
+                Label(rootTitle ?? app.activeLocation?.name ?? "Top", systemImage: rootTitle == nil ? "folder" : "square.grid.2x2")
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(.plain)
@@ -145,10 +147,38 @@ struct TreemapView: View {
         return out
     }
 
+    /// Smallest cell that can still show a size label. Anything smaller after
+    /// layout is folded into the "smaller items" cell and the level is laid
+    /// out again, so no cell is ever drawn blank.
+    private static let minCellWidth: CGFloat = 52
+    private static let minCellHeight: CGFloat = 18
+
+    private func layout(_ items: [ScanNode], in rect: CGRect) -> (entries: [Entry], frames: [TreemapFrame]) {
+        var entries = aggregated(items, in: rect)
+        var frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: rect)
+        for _ in 0..<8 {
+            let tiny = Set(frames.filter { $0.rect.width < Self.minCellWidth || $0.rect.height < Self.minCellHeight }.map(\.id))
+            let demoted = entries.filter { !$0.isOther && tiny.contains($0.node.id) }
+            guard !demoted.isEmpty else { break }
+            var kept = entries.filter { !$0.isOther && !tiny.contains($0.node.id) }
+            var smallBytes = entries.first(where: { $0.isOther })?.node.logicalBytes ?? 0
+            var smallCount = entries.first(where: { $0.isOther })?.members ?? 0
+            for d in demoted { smallBytes += d.node.logicalBytes; smallCount += 1 }
+            if smallCount > 0 {
+                let other = ScanNode(id: "__other-\(focus?.id ?? "top")", name: "\(smallCount) smaller items",
+                                     path: "", isFolder: true, category: .other, logicalBytes: smallBytes,
+                                     modified: nil, childCount: smallCount)
+                kept.append(Entry(node: other, isOther: true, members: smallCount))
+            }
+            entries = kept
+            frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: rect)
+        }
+        return (entries, frames)
+    }
+
     private func mapBody(size: CGSize) -> some View {
         let rect = CGRect(origin: .zero, size: size)
-        let entries = aggregated(levelNodes, in: rect)
-        let frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: rect)
+        let (entries, frames) = layout(levelNodes, in: rect)
         let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.node.id, $0) })
         let rank = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($0.element.node.id, $0.offset) })
         return ZStack(alignment: .topLeading) {
@@ -283,7 +313,7 @@ struct TreemapView: View {
         var big: [ScanNode] = []
         var rest: [ScanNode] = []
         for k in kids {
-            if CGFloat(k.logicalBytes) * scale >= 30 * 14 && big.count < 12 { big.append(k) } else { rest.append(k) }
+            if CGFloat(k.logicalBytes) * scale >= 52 * 18 && big.count < 12 { big.append(k) } else { rest.append(k) }
         }
         if rest.count == 1 { big.append(rest.removeFirst()) }
         var out = big.map { Entry(node: $0, isOther: false, members: 0) }

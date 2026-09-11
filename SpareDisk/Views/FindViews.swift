@@ -31,6 +31,8 @@ struct LargeFilesView: View {
             }
             if useReal && shown.isEmpty {
                 emptyHint("No files this large in the scanned locations.")
+            } else if app.viewMode == .map {
+                TreemapView(nodes: shown, rootTitle: "Large Files")
             } else {
                 List(selection: Binding(get: { app.inspectedNodeID }, set: { app.inspectedNodeID = $0 })) {
                     ForEach(shown) { node in
@@ -93,6 +95,8 @@ struct OlderFilesView: View {
             }
             if useReal && shown.isEmpty {
                 emptyHint("Nothing this old in the scanned locations.")
+            } else if app.viewMode == .map {
+                TreemapView(nodes: shown, rootTitle: "Older Files")
             } else {
                 List(selection: Binding(get: { app.inspectedNodeID }, set: { app.inspectedNodeID = $0 })) {
                     ForEach(shown) { node in

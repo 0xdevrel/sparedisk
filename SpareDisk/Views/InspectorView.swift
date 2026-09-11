@@ -192,14 +192,23 @@ struct InspectorView: View {
 
     private func actions(_ node: ScanNode) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button {
-                app.toggleReview(node, source: "Inspector")
-            } label: {
-                Text(app.isQueued(node.id) ? "Remove from Review" : "Add to Review").frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                Button {
+                    app.toggleReview(node, source: "Inspector")
+                } label: {
+                    Label(app.isQueued(node.id) ? "Remove" : "Add to Review", systemImage: "tray").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!app.canReview(node))
+                Button {
+                    app.requestTrash(node)
+                } label: {
+                    Label("Move to Trash", systemImage: "trash").frame(maxWidth: .infinity)
+                }
+                .disabled(!app.canReview(node))
+                .help("Checked again, then moved to the Trash (⌘⌫)")
             }
-            .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(!app.canReview(node))
             HStack(spacing: 8) {
                 Button { actionNotice = app.preview(node) } label: {
                     Label("Quick Look", systemImage: "eye").frame(maxWidth: .infinity)
