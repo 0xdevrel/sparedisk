@@ -11,8 +11,13 @@ struct DuplicatesView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScreenBar {
                 if app.duplicateRunning {
-                    ProgressView().controlSize(.small)
-                    Text(progressLine)
+                    if app.duplicateBytesTotal > 0 {
+                        ProgressView(value: Double(app.duplicateBytesDone), total: Double(max(app.duplicateBytesTotal, 1)))
+                            .progressViewStyle(.linear).frame(width: 140)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(progressLine).lineLimit(1)
                 } else if !app.duplicateGroups.isEmpty {
                     Text("\(app.duplicateGroups.count) groups, \(SDFormat.bytesString(redundantTotal)) redundant")
                 } else {
@@ -48,11 +53,18 @@ struct DuplicatesView: View {
             }
 
             if app.duplicateRunning && app.duplicateGroups.isEmpty {
-                VStack(spacing: 8) {
-                    ProgressView()
-                    Text("Comparing contents…").font(SDTheme.Font.body)
-                    Text("Size groups, then samples, then full hashes, then byte confirmation.")
-                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                VStack(spacing: 12) {
+                    if app.duplicateBytesTotal > 0 {
+                        ProgressView(value: Double(app.duplicateBytesDone), total: Double(max(app.duplicateBytesTotal, 1)))
+                            .progressViewStyle(.linear).frame(width: 320)
+                        Text("Comparing contents, \(SDFormat.bytesString(app.duplicateBytesDone)) of up to \(SDFormat.bytesString(app.duplicateBytesTotal))")
+                            .font(SDTheme.Font.body)
+                    } else {
+                        ProgressView()
+                        Text("Grouping files by size").font(SDTheme.Font.body)
+                    }
+                    Text(app.duplicateCurrent ?? "").font(SDTheme.Font.secondary).foregroundStyle(.secondary).lineLimit(1)
+                        .frame(maxWidth: 420)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if app.duplicateGroups.isEmpty {
@@ -106,10 +118,11 @@ struct DuplicatesView: View {
     }
 
     private var progressLine: String {
-        if app.duplicateTotal > 0 {
-            return "Compared \(app.duplicateChecked) of \(app.duplicateTotal) · \(app.duplicateCurrent ?? "")"
+        if app.duplicateBytesTotal > 0 {
+            return "\(SDFormat.bytesString(app.duplicateBytesDone)) of \(SDFormat.bytesString(app.duplicateBytesTotal)) read, \(app.duplicateChecked) of \(app.duplicateTotal) files. \(app.duplicateCurrent ?? "")"
         }
-        return "Starting…"
+        if app.duplicateTotal > 0 { return "Grouping \(app.duplicateTotal) files by size" }
+        return "Starting"
     }
 
     private var redundantTotal: Int64 {

@@ -195,7 +195,9 @@ nonisolated enum ScanEngine {
                          + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000)
         return Stat(isDir: mode == S_IFDIR, isLink: mode == S_IFLNK, isRegular: mode == S_IFREG,
                     size: Int64(st.st_size), allocated: Int64(st.st_blocks) * 512,
-                    modified: st.st_mtimespec.tv_sec == 0 ? nil : mtime,
+                    // Dates before 1980 are placeholders left by archives and
+                    // copies, not real history; they read as unknown.
+                    modified: st.st_mtimespec.tv_sec < 315_532_800 ? nil : mtime,
                     links: Int(st.st_nlink), ino: UInt64(st.st_ino), dev: UInt64(UInt32(bitPattern: st.st_dev)),
                     dataless: isDataless(flags: st.st_flags), uid: st.st_uid)
     }

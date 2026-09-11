@@ -21,5 +21,11 @@ struct SpareDiskApp: App {
             SettingsView()
                 .environment(appState)
         }
+
+        Window("SpareDisk Help", id: "help") {
+            HelpView()
+        }
+        .defaultSize(width: 760, height: 520)
+        .keyboardShortcut("?", modifiers: .command)
     }
 }

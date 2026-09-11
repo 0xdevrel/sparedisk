@@ -13,6 +13,8 @@ extension AppState {
         duplicateChecked = 0
         duplicateTotal = 0
         duplicateCurrent = nil
+        duplicateBytesDone = 0
+        duplicateBytesTotal = 0
 
         let files = scans.values.flatMap(\.largestFiles)
         guard !files.isEmpty else {
@@ -82,6 +84,8 @@ extension AppState {
             self.duplicateChecked = p.checked
             self.duplicateTotal = p.total
             self.duplicateCurrent = p.current
+            self.duplicateBytesDone = p.bytesDone
+            self.duplicateBytesTotal = p.bytesTotal
         }
         let result = await worker.value
         if Task.isCancelled { return } // keep the previous groups, no error state

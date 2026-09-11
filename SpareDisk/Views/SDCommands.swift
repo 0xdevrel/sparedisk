@@ -3,9 +3,14 @@ import SwiftUI
 
 struct AppCommands: Commands {
     let app: AppState
+    @Environment(\.openWindow) private var openWindow
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About SpareDisk") { app.showAbout = true }
+        }
+        CommandGroup(replacing: .help) {
+            Button("SpareDisk Help") { openWindow(id: "help") }
+                .keyboardShortcut("?", modifiers: .command)
         }
         CommandGroup(after: .newItem) {
             Button("Choose a Location…") { Task { await app.addLocationFlow() } }

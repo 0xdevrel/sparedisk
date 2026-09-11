@@ -28,6 +28,10 @@ nonisolated struct DuplicateProgress: Hashable {
     var checked: Int
     var total: Int
     var current: String
+    /// Bytes read so far and the most that could be read, so long
+    /// comparisons show movement.
+    var bytesDone: Int64 = 0
+    var bytesTotal: Int64 = 0
 }
 
 nonisolated enum DuplicateService {
@@ -68,7 +72,19 @@ nonisolated enum DuplicateService {
         // 3. Group by size; singletons can never duplicate.
         var groups: [DuplicateGroup] = []
         var checked = 0
-        for (_, sameSize) in Dictionary(grouping: unique, by: \.logicalBytes) where sameSize.count > 1 {
+        let sizeGroups = Dictionary(grouping: unique, by: \.logicalBytes).filter { $0.value.count > 1 }
+        // Worst case reads every candidate twice: once to hash, once to confirm.
+        let bytesTotal = sizeGroups.values.reduce(Int64(0)) { $0 + $1.reduce(0) { $0 + $1.logicalBytes } * 2 }
+        var bytesDone: Int64 = 0
+        var lastReport = Date.distantPast
+        func report(_ name: String, force: Bool = false) {
+            let now = Date()
+            guard force || now.timeIntervalSince(lastReport) > 0.2 else { return }
+            lastReport = now
+            onEvent(DuplicateProgress(checked: checked, total: unique.count, current: name,
+                                      bytesDone: min(bytesDone, bytesTotal), bytesTotal: bytesTotal))
+        }
+        for (_, sameSize) in sizeGroups {
             if Task.isCancelled { break }
             // 4. Recheck metadata right before reading.
             var fresh: [ScanNode] = []
@@ -99,7 +115,9 @@ nonisolated enum DuplicateService {
                 for f in contenders {
                     if Task.isCancelled { break }
                     do {
-                        digestBuckets[try shaFile(url: URL(fileURLWithPath: f.path)), default: []].append(f)
+                        digestBuckets[try shaFile(url: URL(fileURLWithPath: f.path)) { read in
+                            bytesDone += read; report(f.name)
+                        }, default: []].append(f)
                     } catch {
                         skipped.append(skip(f, reason: "Could not be read."))
                     }
@@ -113,7 +131,9 @@ nonisolated enum DuplicateService {
                         if Task.isCancelled { break }
                         do {
                             if try contentsEqual(URL(fileURLWithPath: anchor.path),
-                                                 URL(fileURLWithPath: f.path)) {
+                                                 URL(fileURLWithPath: f.path), progress: { read in
+                                bytesDone += read; report(f.name)
+                            }) {
                                 verified.append(f)
                             }
                         } catch {
@@ -131,7 +151,9 @@ nonisolated enum DuplicateService {
                 }
             }
             checked += fresh.count
-            onEvent(DuplicateProgress(checked: checked, total: unique.count, current: sameSize[0].name))
+            // Files that dropped out early still count as read for the estimate.
+            bytesDone += sameSize.reduce(0) { $0 + $1.logicalBytes } * 2
+            report(sameSize[0].name, force: true)
         }
         groups.sort { $0.redundantLogicalBytes > $1.redundantLogicalBytes }
         return (groups, skipped)
@@ -178,19 +200,21 @@ nonisolated enum DuplicateService {
         return try h.read(upToCount: maxBytes) ?? Data()
     }
 
-    private static func shaFile(url: URL) throws -> String {
+    private static func shaFile(url: URL, progress: (Int64) -> Void = { _ in }) throws -> String {
         let h = try FileHandle(forReadingFrom: url)
         defer { try? h.close() }
         var digest = SHA256()
         while true {
             guard let data = try h.read(upToCount: ioChunk), !data.isEmpty else { break }
             digest.update(data: data)
+            progress(Int64(data.count))
+            if Task.isCancelled { throw CancellationError() }
         }
         guard !Task.isCancelled else { throw CancellationError() }
         return shaHex(digest.finalize())
     }
 
-    private static func contentsEqual(_ a: URL, _ b: URL) throws -> Bool {
+    private static func contentsEqual(_ a: URL, _ b: URL, progress: (Int64) -> Void = { _ in }) throws -> Bool {
         let ha = try FileHandle(forReadingFrom: a)
         defer { try? ha.close() }
         let hb = try FileHandle(forReadingFrom: b)
@@ -200,6 +224,8 @@ nonisolated enum DuplicateService {
             let db = try hb.read(upToCount: ioChunk) ?? Data()
             if da != db { return false }
             if da.isEmpty { return true }
+            progress(Int64(da.count))
+            if Task.isCancelled { throw CancellationError() }
         }
     }
 

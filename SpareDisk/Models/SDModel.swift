@@ -363,6 +363,8 @@ final class AppState {
     var duplicateChecked = 0
     var duplicateTotal = 0
     var duplicateCurrent: String?
+    var duplicateBytesDone: Int64 = 0
+    var duplicateBytesTotal: Int64 = 0
     var duplicateTask: Task<Void, Never>?
     var duplicateNotice: String?
 

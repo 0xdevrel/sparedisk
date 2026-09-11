@@ -6,6 +6,7 @@ import SwiftUI
 struct OverviewView: View {
     @Environment(AppState.self) private var app
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.openWindow) private var openWindow
     @State private var showTotalsExplanation = false
 
     private var scanned: [SDLocation] { app.locations.filter { app.scans[$0.id] != nil } }
@@ -91,8 +92,13 @@ struct OverviewView: View {
                     Button("Why the totals differ") { showTotalsExplanation = true }
                         .buttonStyle(.link).font(SDTheme.Font.secondary)
                         .popover(isPresented: $showTotalsExplanation) {
-                            Text("Segments show what each scanned folder occupies on disk. Folders may overlap when one contains another. Other covers everything outside the scanned folders: system files, other users, snapshots, and files not yet downloaded.")
-                                .font(SDTheme.Font.secondary).padding(16).frame(width: 320)
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Segments show what each scanned folder occupies on disk. Folders may overlap when one contains another. Other covers everything outside the scanned folders: system files, other users, snapshots, and files not yet downloaded.")
+                                    .font(SDTheme.Font.secondary)
+                                Button("More in Help") { showTotalsExplanation = false; openWindow(id: "help") }
+                                    .buttonStyle(.link).font(SDTheme.Font.secondary)
+                            }
+                            .padding(16).frame(width: 320)
                         }
                 }
                 .font(SDTheme.Font.secondary)
