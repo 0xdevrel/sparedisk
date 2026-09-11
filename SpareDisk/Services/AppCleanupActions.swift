@@ -8,17 +8,29 @@ extension AppState {
     /// Ask to move one item straight to the Trash. Same revalidation and
     /// confirmation as the queue, without staging first.
     @MainActor
-    func requestTrash(_ node: ScanNode) {
-        guard canReview(node) else { return }
-        directTrashItem = ReviewItem(id: node.id, node: node, source: "Direct", reason: "Direct",
-                                     risk: node.isFolder ? "Folder" : "File")
+    func requestTrash(_ node: ScanNode) { requestTrash([node]) }
+
+    @MainActor
+    func requestTrash(_ nodes: [ScanNode]) {
+        let items = nodes.filter { canReview($0) }.map {
+            ReviewItem(id: $0.id, node: $0, source: "Direct", reason: "Direct", risk: $0.isFolder ? "Folder" : "File")
+        }
+        guard !items.isEmpty else { return }
+        directTrashItems = items
     }
 
     @MainActor
     func confirmDirectTrash() {
-        guard let item = directTrashItem else { return }
-        directTrashItem = nil
-        cleanupTask = Task { await runCleanup(items: [item]) }
+        let items = directTrashItems
+        directTrashItems = []
+        guard !items.isEmpty else { return }
+        cleanupTask = Task { await runCleanup(items: items) }
+    }
+
+    /// Stage every reviewable node that is not already staged.
+    @MainActor
+    func addToReview(_ nodes: [ScanNode], source: String) {
+        for n in nodes where canReview(n) && !isQueued(n.id) { toggleReview(n, source: source) }
     }
 
     @MainActor

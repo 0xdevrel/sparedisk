@@ -14,7 +14,7 @@ struct OverviewView: View {
         scanned.max { (app.scans[$0.id]?.totalAllocated ?? 0) < (app.scans[$1.id]?.totalAllocated ?? 0) }
     }
     private var biggestFiles: [ScanNode] {
-        Array(app.scans.values.flatMap(\.largestFiles).sorted { $0.logicalBytes > $1.logicalBytes }.prefix(8))
+        Array(app.scans.values.flatMap(\.largestFiles).sorted { app.bytes($0) > app.bytes($1) }.prefix(8))
     }
 
     var body: some View {
@@ -34,7 +34,7 @@ struct OverviewView: View {
                 }
             }
             .frame(maxWidth: 900, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: app.hasRealData ? .leading : .center)
             .padding(.horizontal, SDTheme.Space.lg)
             .padding(.vertical, SDTheme.Space.lg)
         }
@@ -43,24 +43,29 @@ struct OverviewView: View {
     // MARK: - First launch
 
     private var firstLaunch: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("See where your space goes.").font(SDTheme.Font.screenTitle)
-            Text("Add a folder and SpareDisk maps what is inside it. Nothing moves until you review it and confirm.")
-                .font(SDTheme.Font.body).foregroundStyle(.secondary)
-                .frame(maxWidth: 480, alignment: .leading)
-            HStack(spacing: 10) {
-                Button("Analyze Home Folder") { Task { await app.addHomeFolderFlow() } }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                Button("Analyze Applications") { Task { await app.addApplicationsFlow() } }
-                Button("Choose Folders…") { Task { await app.addLocationFlow() } }
-                    .keyboardShortcut("o", modifiers: .command)
+        VStack(spacing: SDTheme.Space.lg) {
+            VStack(spacing: 8) {
+                Text("See where your space goes.").font(SDTheme.Font.screenTitle)
+                Text("Pick what to analyze. SpareDisk maps what is inside, and nothing moves until you review it and confirm.")
+                    .font(SDTheme.Font.body).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 460)
             }
-            .controlSize(.large)
-            Text("Your home folder covers Desktop, Documents, Downloads and Library in one step. macOS asks once per protected folder.")
+            HStack(spacing: 14) {
+                StartCard(symbol: "house", title: "Home Folder",
+                          detail: "Desktop, Documents, Downloads and Library in one step.",
+                          prominent: true) { Task { await app.addHomeFolderFlow() } }
+                StartCard(symbol: "square.grid.3x3", title: "Applications",
+                          detail: "Installed apps and what each one takes.") { Task { await app.addApplicationsFlow() } }
+                StartCard(symbol: "folder", title: "Other Folders",
+                          detail: "Any folder or external drive. Pick several at once.") { Task { await app.addLocationFlow() } }
+            }
+            .frame(maxWidth: 720)
+            Text("macOS asks once before a protected folder is read. Nothing leaves this Mac.")
                 .font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
         }
-        .padding(.top, SDTheme.Space.lg)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 72)
     }
 
     // MARK: - Volume
@@ -185,7 +190,11 @@ struct OverviewView: View {
                             Text(node.path).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        MonospaceBytes(bytes: node.logicalBytes).frame(width: 90, alignment: .trailing)
+                        if app.hasDiskHint(node) {
+                            Text("\(SDFormat.bytesString(node.allocatedBytes ?? 0)) on disk")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                        MonospaceBytes(bytes: app.bytes(node)).frame(width: 90, alignment: .trailing)
                     }
                     .contentShape(Rectangle())
                 }
@@ -285,5 +294,43 @@ private struct LocationRow: View {
         }
         if !location.access.isOK { return location.access.label }
         return location.id
+    }
+}
+
+/// One of three equal starting choices on first launch.
+private struct StartCard: View {
+    let symbol: String
+    let title: String
+    let detail: String
+    var prominent = false
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundStyle(prominent ? Color.accentColor : .secondary)
+                    .frame(height: 28)
+                Text(title).font(.system(size: 15, weight: .semibold))
+                Text(detail).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+                Text(prominent ? "Analyze" : "Choose…")
+                    .font(SDTheme.Font.secondary.weight(.medium))
+                    .foregroundStyle(prominent ? Color.accentColor : .primary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 168, alignment: .topLeading)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(hovered ? 1 : 0.7), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(prominent ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.10), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .accessibilityLabel("\(title). \(detail)")
     }
 }

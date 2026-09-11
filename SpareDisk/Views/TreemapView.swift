@@ -128,7 +128,7 @@ struct TreemapView: View {
         var big: [ScanNode] = []
         var small: [ScanNode] = []
         for (i, n) in sorted.enumerated() {
-            if CGFloat(n.logicalBytes) * scale >= Self.minCellArea && i < Self.maxCells {
+            if CGFloat(app.bytes(n)) * scale >= Self.minCellArea && i < Self.maxCells {
                 big.append(n)
             } else {
                 small.append(n)
@@ -155,15 +155,15 @@ struct TreemapView: View {
 
     private func layout(_ items: [ScanNode], in rect: CGRect) -> (entries: [Entry], frames: [TreemapFrame]) {
         var entries = aggregated(items, in: rect)
-        var frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: rect)
+        var frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat(app.bytes($0.node))) }, in: rect)
         for _ in 0..<8 {
             let tiny = Set(frames.filter { $0.rect.width < Self.minCellWidth || $0.rect.height < Self.minCellHeight }.map(\.id))
             let demoted = entries.filter { !$0.isOther && tiny.contains($0.node.id) }
             guard !demoted.isEmpty else { break }
             var kept = entries.filter { !$0.isOther && !tiny.contains($0.node.id) }
-            var smallBytes = entries.first(where: { $0.isOther })?.node.logicalBytes ?? 0
+            var smallBytes = entries.first(where: { $0.isOther }).map { app.bytes($0.node) } ?? 0
             var smallCount = entries.first(where: { $0.isOther })?.members ?? 0
-            for d in demoted { smallBytes += d.node.logicalBytes; smallCount += 1 }
+            for d in demoted { smallBytes += app.bytes(d.node); smallCount += 1 }
             if smallCount > 0 {
                 let other = ScanNode(id: "__other-\(focus?.id ?? "top")", name: "\(smallCount) smaller items",
                                      path: "", isFolder: true, category: .other, logicalBytes: smallBytes,
@@ -171,7 +171,7 @@ struct TreemapView: View {
                 kept.append(Entry(node: other, isOther: true, members: smallCount))
             }
             entries = kept
-            frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: rect)
+            frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat(app.bytes($0.node))) }, in: rect)
         }
         return (entries, frames)
     }
@@ -248,7 +248,7 @@ struct TreemapView: View {
         let canNest = !kids.isEmpty && bodyRect.width >= 80 && bodyRect.height >= 44
         let nested = canNest ? nestedEntries(kids, in: bodyRect) : []
         let childFrames = canNest
-            ? TreemapLayout.squarify(nested.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: bodyRect)
+            ? TreemapLayout.squarify(nested.map { ($0.node.id, CGFloat(app.bytes($0.node))) }, in: bodyRect)
             : []
         let nestedByID = Dictionary(uniqueKeysWithValues: nested.map { ($0.node.id, $0) })
 
@@ -282,9 +282,9 @@ struct TreemapView: View {
         .onKeyPress(.space) { app.preview(node); return .handled }
         .contextMenu { NodeContextMenu(node: node, source: "Map") }
         .onDrag { NSItemProvider(object: URL(fileURLWithPath: node.path) as NSURL) }
-        .help("\(node.name)\n\(SDFormat.bytesString(node.logicalBytes))\(node.isFolder && !node.isPackage ? "\nDouble-click to open" : "")")
+        .help("\(node.name)\n\(SDFormat.bytesString(app.bytes(node)))\(node.isFolder && !node.isPackage ? "\nDouble-click to open" : "")")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(node.name), \(SDFormat.bytesString(node.logicalBytes))\(node.isFolder ? ", folder" : "")")
+        .accessibilityLabel("\(node.name), \(SDFormat.bytesString(app.bytes(node)))\(node.isFolder ? ", folder" : "")")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -293,12 +293,14 @@ struct TreemapView: View {
             switch plan {
             case .nameAndSize:
                 Text(node.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                Text(SDFormat.bytesString(node.logicalBytes))
+                Text(app.hasDiskHint(node)
+                     ? "\(SDFormat.bytesString(node.logicalBytes)), \(SDFormat.bytesString(node.allocatedBytes ?? 0)) on disk"
+                     : SDFormat.bytesString(app.bytes(node)))
                     .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
             case .nameOnly:
                 Text(node.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
             case .sizeOnly:
-                Text(SDFormat.bytesString(node.logicalBytes))
+                Text(SDFormat.bytesString(app.bytes(node)))
                     .font(.system(size: 11).monospacedDigit()).lineLimit(1)
             case .none:
                 EmptyView()
@@ -313,7 +315,7 @@ struct TreemapView: View {
         var big: [ScanNode] = []
         var rest: [ScanNode] = []
         for k in kids {
-            if CGFloat(k.logicalBytes) * scale >= 52 * 18 && big.count < 12 { big.append(k) } else { rest.append(k) }
+            if CGFloat(app.bytes(k)) * scale >= 52 * 18 && big.count < 12 { big.append(k) } else { rest.append(k) }
         }
         if rest.count == 1 { big.append(rest.removeFirst()) }
         var out = big.map { Entry(node: $0, isOther: false, members: 0) }
@@ -339,13 +341,13 @@ struct TreemapView: View {
             if showBoth {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(kid.name).font(.system(size: 10, weight: .medium)).lineLimit(1)
-                    Text(SDFormat.bytesString(kid.logicalBytes)).font(.system(size: 10).monospacedDigit())
+                    Text(SDFormat.bytesString(app.bytes(kid))).font(.system(size: 10).monospacedDigit())
                         .foregroundStyle(.secondary).lineLimit(1)
                 }
                 .foregroundStyle(entry.isOther ? .secondary : .primary)
                 .padding(.horizontal, 4).padding(.top, 2)
             } else if showName || showSize {
-                Text(showName ? kid.name : SDFormat.bytesString(kid.logicalBytes))
+                Text(showName ? kid.name : SDFormat.bytesString(app.bytes(kid)))
                     .font(.system(size: 10).monospacedDigit()).lineLimit(1)
                     .foregroundStyle(entry.isOther ? .secondary : .primary)
                     .padding(.horizontal, 4).padding(.top, 2)
@@ -356,11 +358,11 @@ struct TreemapView: View {
         .onTapGesture(count: 2) { if !entry.isOther { if embedded { open(kid) } else { drill(kid) } } }
         .onTapGesture { if !entry.isOther { app.inspectedNodeID = kid.id } }
         .onHover { if !entry.isOther { hoveredID = $0 ? kid.id : (hoveredID == kid.id ? nil : hoveredID) } }
-        .help(entry.isOther ? "\(entry.members) smaller items, \(SDFormat.bytesString(kid.logicalBytes))"
-                            : "\(kid.name)\n\(SDFormat.bytesString(kid.logicalBytes))")
+        .help(entry.isOther ? "\(entry.members) smaller items, \(SDFormat.bytesString(app.bytes(kid)))"
+                            : "\(kid.name)\n\(SDFormat.bytesString(app.bytes(kid)))")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.isOther ? "\(entry.members) smaller items, \(SDFormat.bytesString(kid.logicalBytes))"
-                                          : "\(kid.name), \(SDFormat.bytesString(kid.logicalBytes))")
+        .accessibilityLabel(entry.isOther ? "\(entry.members) smaller items, \(SDFormat.bytesString(app.bytes(kid)))"
+                                          : "\(kid.name), \(SDFormat.bytesString(app.bytes(kid)))")
     }
 
     private func otherCell(entry: Entry, rect: CGRect) -> some View {
@@ -373,7 +375,7 @@ struct TreemapView: View {
                         Text(entry.node.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
                     }
                     if labels != .nameOnly {
-                        Text(SDFormat.bytesString(entry.node.logicalBytes))
+                        Text(SDFormat.bytesString(app.bytes(entry.node)))
                             .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
@@ -387,9 +389,9 @@ struct TreemapView: View {
         .onHover { hoveredID = $0 ? entry.node.id : (hoveredID == entry.node.id ? nil : hoveredID) }
         .focusable()
         .onKeyPress(.return) { showInList(); return .handled }
-        .help("\(entry.members) items too small to draw, \(SDFormat.bytesString(entry.node.logicalBytes)) in total.\nClick to see them in the list.")
+        .help("\(entry.members) items too small to draw, \(SDFormat.bytesString(app.bytes(entry.node))) in total.\nClick to see them in the list.")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(entry.members) smaller items, \(SDFormat.bytesString(entry.node.logicalBytes)). Activate to show in list.")
+        .accessibilityLabel("\(entry.members) smaller items, \(SDFormat.bytesString(app.bytes(entry.node))). Activate to show in list.")
         .accessibilityAddTraits(.isButton)
     }
 

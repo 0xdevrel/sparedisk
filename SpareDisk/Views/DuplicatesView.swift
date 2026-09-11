@@ -66,7 +66,7 @@ struct DuplicatesView: View {
             } else if app.viewMode == .map {
                 TreemapView(nodes: filteredGroups.flatMap(\.files), rootTitle: "Duplicates")
             } else {
-                List(selection: Binding(get: { app.inspectedNodeID }, set: { app.inspectedNodeID = $0 })) {
+                List(selection: Binding(get: { app.selectedIDs }, set: { app.selectedIDs = $0 })) {
                     ForEach(filteredGroups) { group in
                         Section {
                             groupHeader(group)

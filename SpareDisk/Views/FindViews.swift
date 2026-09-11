@@ -6,12 +6,12 @@ struct LargeFilesView: View {
 
     private var useReal: Bool { app.hasRealData }
     private var combined: [ScanNode] {
-        app.scans.values.flatMap(\.largestFiles).sorted { $0.logicalBytes > $1.logicalBytes }
+        app.scans.values.flatMap(\.largestFiles).sorted { app.bytes($0) > app.bytes($1) }
     }
     private var floor: Int64 { Int64(max(0, thresholdMB)) * 1_000_000 }
     private var shown: [ScanNode] {
         let list = useReal ? combined : MockData.largeFiles
-        return list.filter { $0.logicalBytes >= floor && (app.searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(app.searchText)) }.prefix(200).map { $0 }
+        return list.filter { app.bytes($0) >= floor && (app.searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(app.searchText)) }.prefix(200).map { $0 }
     }
 
     var body: some View {
@@ -34,7 +34,7 @@ struct LargeFilesView: View {
             } else if app.viewMode == .map {
                 TreemapView(nodes: shown, rootTitle: "Large Files")
             } else {
-                List(selection: Binding(get: { app.inspectedNodeID }, set: { app.inspectedNodeID = $0 })) {
+                List(selection: Binding(get: { app.selectedIDs }, set: { app.selectedIDs = $0 })) {
                     ForEach(shown) { node in
                         HStack(spacing: 10) {
                             FileTypeIcon(node: node, size: 24)
@@ -49,7 +49,12 @@ struct LargeFilesView: View {
                                 Image(systemName: "tray.full").foregroundStyle(Color.accentColor).help("In Review")
                             }
                             Spacer()
-                            MonospaceBytes(bytes: node.logicalBytes)
+                            if app.hasDiskHint(node) {
+                                Text("\(SDFormat.bytesString(node.allocatedBytes ?? 0)) on disk")
+                                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                                    .help("Sparse, cloned or not downloaded: occupies less than its size")
+                            }
+                            MonospaceBytes(bytes: app.bytes(node))
                         }
                         .frame(minHeight: SDTheme.rowHeight)
                         .contentShape(Rectangle())
@@ -98,13 +103,13 @@ struct OlderFilesView: View {
             } else if app.viewMode == .map {
                 TreemapView(nodes: shown, rootTitle: "Older Files")
             } else {
-                List(selection: Binding(get: { app.inspectedNodeID }, set: { app.inspectedNodeID = $0 })) {
+                List(selection: Binding(get: { app.selectedIDs }, set: { app.selectedIDs = $0 })) {
                     ForEach(shown) { node in
                         HStack(spacing: 10) {
                             FileTypeIcon(node: node, size: 24)
                             VStack(alignment: .leading) {
                                 Text(node.name).font(SDTheme.Font.body)
-                                Text("Modified \(SDFormat.date(node.modified)), \(SDFormat.bytesString(node.logicalBytes))")
+                                Text("Modified \(SDFormat.date(node.modified)), \(SDFormat.bytesString(app.bytes(node)))")
                                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                             }
                             if app.isQueued(node.id) {

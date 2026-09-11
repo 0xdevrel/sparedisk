@@ -167,6 +167,13 @@ enum SDSortField: String, CaseIterable {
     case name, size, modified
 }
 
+/// Which number the app shows and weighs by. Logical is what a file would
+/// hold if fully downloaded and uncompressed; on disk is what it occupies.
+enum SDSizeBasis: String, CaseIterable {
+    case logical, onDisk
+    var label: String { self == .logical ? "Logical Size" : "Size on Disk" }
+}
+
 @Observable
 final class AppState {
     var selection: SDSidebarSelection = .overview {
@@ -179,6 +186,7 @@ final class AppState {
             if case .location(let id) = selection { activeLocationID = id }
             searchText = ""
             inspectedNodeID = nil
+            selectedIDs = []
             mapTrail.removeAll()
         }
     }
@@ -214,9 +222,49 @@ final class AppState {
     var sortAscending: Bool = UserDefaults.standard.object(forKey: "sortAscending") as? Bool ?? false {
         didSet { UserDefaults.standard.set(sortAscending, forKey: "sortAscending") }
     }
+    var sizeBasis: SDSizeBasis = SDSizeBasis(rawValue: UserDefaults.standard.string(forKey: "sizeBasis") ?? "") ?? .logical {
+        didSet { UserDefaults.standard.set(sizeBasis.rawValue, forKey: "sizeBasis") }
+    }
+
+    /// The displayed and weighed size of a node under the current basis.
+    /// Nodes scanned before allocation was tracked fall back to logical.
+    func bytes(_ node: ScanNode) -> Int64 {
+        switch sizeBasis {
+        case .logical: return node.logicalBytes
+        case .onDisk: return node.allocatedBytes ?? node.logicalBytes
+        }
+    }
+
+    /// True when a node occupies far less than its logical size, so the
+    /// logical figure would mislead: sparse, cloned or not-downloaded files.
+    func hasDiskHint(_ node: ScanNode) -> Bool {
+        guard sizeBasis == .logical, let a = node.allocatedBytes, node.logicalBytes >= 50_000_000 else { return false }
+        return a * 2 < node.logicalBytes
+    }
+
     var searchText = ""
+    /// Every selected row. The newest selection drives the inspector.
+    var selectedIDs: Set<String> = [] {
+        didSet {
+            guard selectedIDs != oldValue else { return }
+            let added = selectedIDs.subtracting(oldValue)
+            if let newest = added.first ?? selectedIDs.first {
+                if inspectedNodeID != newest { inspectedNodeID = newest }
+            } else if selectedIDs.isEmpty {
+                inspectedNodeID = nil
+            }
+        }
+    }
+    var selectedNodes: [ScanNode] { selectedIDs.compactMap { nodeIndex[$0] } }
     var inspectedNodeID: String? {
-        didSet { if inspectedNodeID != nil { showInspector = true } }
+        didSet {
+            if let id = inspectedNodeID {
+                showInspector = true
+                if !selectedIDs.contains(id) { selectedIDs = [id] }
+            } else if !selectedIDs.isEmpty {
+                selectedIDs = []
+            }
+        }
     }
     var reviewItems: [ReviewItem] = []
     var showInspector: Bool = UserDefaults.standard.object(forKey: "showInspector") as? Bool ?? false {
@@ -239,7 +287,7 @@ final class AppState {
             let less: Bool
             switch sortField {
             case .name: less = a.name.localizedStandardCompare(b.name) == .orderedAscending
-            case .size: less = a.logicalBytes < b.logicalBytes
+            case .size: less = bytes(a) < bytes(b)
             case .modified: less = (a.modified ?? .distantPast) < (b.modified ?? .distantPast)
             }
             return sortAscending ? less : !less
@@ -304,8 +352,8 @@ final class AppState {
     var cleanupResults: [CleanupResult] = []
     var cleanupTask: Task<Void, Never>?
     var lastCleanupSummary: String?
-    /// One item awaiting confirmation for a direct move to the Trash.
-    var directTrashItem: ReviewItem?
+    /// Items awaiting confirmation for a direct move to the Trash.
+    var directTrashItems: [ReviewItem] = []
 
     // MARK: - Duplicate detection state (§F07, on demand only)
     var duplicateGroups: [DuplicateGroup] = []

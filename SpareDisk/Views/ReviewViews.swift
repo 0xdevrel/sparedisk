@@ -93,7 +93,7 @@ struct ReviewQueueView: View {
                                         Text(item.risk).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    MonospaceBytes(bytes: item.node.logicalBytes)
+                                    MonospaceBytes(bytes: app.bytes(item.node))
                                     Button("Remove") { app.toggleReview(item.node, source: item.source) }
                                         .buttonStyle(.link)
                                 }

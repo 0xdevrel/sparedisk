@@ -13,7 +13,9 @@ struct InspectorView: View {
 
     var body: some View {
         ScrollView {
-            if let node {
+            if app.selectedNodes.count > 1 {
+                multiple(app.selectedNodes)
+            } else if let node {
                 VStack(alignment: .leading, spacing: SDTheme.Space.sm) {
                     identity(node)
                     Divider()
@@ -38,6 +40,39 @@ struct InspectorView: View {
             }
         }
         .accessibilityLabel("Inspector")
+    }
+
+    private func multiple(_ nodes: [ScanNode]) -> some View {
+        let total = nodes.reduce(0) { $0 + app.bytes($1) }
+        let reviewable = nodes.filter { app.canReview($0) }
+        return VStack(alignment: .leading, spacing: SDTheme.Space.sm) {
+            Text("\(nodes.count) items").font(.system(size: 15, weight: .semibold))
+            Text(SDFormat.bytesString(total)).font(SDTheme.Font.figureSmall)
+            Text("\(nodes.filter(\.isFolder).count) folders, \(nodes.filter { !$0.isFolder }.count) files")
+                .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            Divider()
+            HStack(spacing: 8) {
+                Button {
+                    app.addToReview(reviewable, source: "Inspector")
+                } label: {
+                    Label("Add \(reviewable.count) to Review", systemImage: "tray").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(reviewable.isEmpty)
+                Button {
+                    app.requestTrash(reviewable)
+                } label: {
+                    Label("Move to Trash", systemImage: "trash").frame(maxWidth: .infinity)
+                }
+                .disabled(reviewable.isEmpty)
+            }
+            .controlSize(.large)
+            if reviewable.count < nodes.count {
+                Text("\(nodes.count - reviewable.count) of the selected items cannot be moved by SpareDisk.")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
+        }
+        .padding(SDTheme.Space.md)
     }
 
     private func identity(_ node: ScanNode) -> some View {

@@ -19,19 +19,29 @@ struct AppCommands: Commands {
             Button("Forward", action: app.goForward).keyboardShortcut("]", modifiers: .command).disabled(!app.canGoForward)
         }
         CommandGroup(after: .toolbar) {
+            Picker("Size Basis", selection: Binding(get: { app.sizeBasis }, set: { app.sizeBasis = $0 })) {
+                Text("Logical Size").tag(SDSizeBasis.logical)
+                Text("Size on Disk").tag(SDSizeBasis.onDisk)
+            }
+            .pickerStyle(.inline)
+            Divider()
             Button("Rescan Current Location") { app.rescanActive() }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(app.activeLocation == nil || app.isScanning)
         }
         CommandMenu("Item") {
-            Button(app.inspectedNode.map { app.isQueued($0.id) } == true ? "Remove from Review" : "Add to Review") {
-                if let n = app.inspectedNode { app.toggleReview(n, source: "Menu") }
+            Button(app.selectedNodes.count > 1 ? "Add \(app.selectedNodes.count) Items to Review"
+                   : app.inspectedNode.map { app.isQueued($0.id) } == true ? "Remove from Review" : "Add to Review") {
+                if app.selectedNodes.count > 1 { app.addToReview(app.selectedNodes, source: "Menu") }
+                else if let n = app.inspectedNode { app.toggleReview(n, source: "Menu") }
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(app.inspectedNode.map { app.canReview($0) } != true)
-            Button("Move to Trash…") { if let n = app.inspectedNode { app.requestTrash(n) } }
-                .keyboardShortcut(.delete, modifiers: .command)
-                .disabled(app.inspectedNode.map { app.canReview($0) } != true)
+            .disabled(!app.selectedNodes.contains { app.canReview($0) })
+            Button(app.selectedNodes.count > 1 ? "Move \(app.selectedNodes.count) Items to Trash…" : "Move to Trash…") {
+                app.requestTrash(app.selectedNodes)
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+            .disabled(!app.selectedNodes.contains { app.canReview($0) })
             Divider()
             Button("Quick Look") { if let n = app.inspectedNode { app.preview(n) } }
                 .keyboardShortcut("y", modifiers: .command)
@@ -52,6 +62,7 @@ struct AppCommands: Commands {
 }
 
 struct SettingsView: View {
+    @Environment(AppState.self) private var app
     @AppStorage("appearance") private var appearance = "System"
     var body: some View {
         Form {
@@ -62,6 +73,14 @@ struct SettingsView: View {
                     Text("Dark").tag("Dark")
                 }
             }
+            Section("Sizes") {
+                Picker("Show", selection: Binding(get: { app.sizeBasis }, set: { app.sizeBasis = $0 })) {
+                    Text("Logical size").tag(SDSizeBasis.logical)
+                    Text("Size on disk").tag(SDSizeBasis.onDisk)
+                }
+                Text("Logical size is what a file would hold if fully downloaded and uncompressed. Size on disk is what it occupies now.")
+                    .foregroundStyle(.secondary)
+            }
             Section("Privacy") {
                 Text("Analysis happens on this Mac. File names, paths, and contents are never uploaded.")
                 Text("Use Forget Location in the sidebar to remove a saved folder permission and its saved scan.")
@@ -71,7 +90,7 @@ struct SettingsView: View {
         .font(SDTheme.Font.body)
         .formStyle(.grouped)
         .padding(12)
-        .frame(width: 460, height: 290)
+        .frame(width: 460, height: 380)
         .preferredColorScheme(appearance == "System" ? nil : appearance == "Dark" ? .dark : .light)
     }
 }

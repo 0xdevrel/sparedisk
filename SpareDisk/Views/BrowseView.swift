@@ -13,7 +13,7 @@ struct BrowseView: View {
     private var all: [ScanNode] { app.hasRealData ? app.visibleTopNodes(for: locationID) : MockData.topLevel }
     private var total: Int64 {
         guard app.hasRealData else { return MockData.homeTree.logicalBytes }
-        if let scan { return scan.totalBytes }
+        if let scan { return app.sizeBasis == .onDisk && scan.totalAllocated > 0 ? scan.totalAllocated : scan.totalBytes }
         return scanningHere ? (app.scanProgress?.partialBytes ?? 0) : 0
     }
 
@@ -70,7 +70,10 @@ struct BrowseView: View {
                         }
                     }
                     if searching {
-                        Text("\(nodes.count) matching, \(SDFormat.bytesString(nodes.reduce(0) { $0 + $1.logicalBytes }))")
+                        Text("\(nodes.count) matching, \(SDFormat.bytesString(nodes.reduce(0) { $0 + app.bytes($1) }))")
+                    }
+                    if app.sizeBasis == .onDisk {
+                        Text("Sizes on disk").foregroundStyle(.tertiary)
                     }
                 } trailing: {
                     SearchField(text: $app.searchText, prompt: "Search \(location?.name ?? "")")
@@ -126,8 +129,8 @@ struct FileListView: View {
             header
             Divider()
             List(selection: Binding(
-                get: { app.inspectedNodeID },
-                set: { app.inspectedNodeID = $0 }
+                get: { app.selectedIDs },
+                set: { app.selectedIDs = $0 }
             )) {
                 ForEach(app.sorted(nodes)) { node in
                     if flat {
@@ -268,11 +271,16 @@ struct FileRow: View {
             if app.isQueued(node.id) {
                 Image(systemName: "tray.full").foregroundStyle(Color.accentColor).help("In Review")
             }
+            if app.hasDiskHint(node) {
+                Text("\(SDFormat.bytesString(node.allocatedBytes ?? 0)) on disk")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .help("Sparse, cloned or not downloaded: occupies less than its size")
+            }
             Text(SDFormat.date(node.modified))
                 .font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
                 .frame(width: 96, alignment: .trailing)
-            MonospaceBytes(bytes: node.logicalBytes).frame(width: 96, alignment: .trailing)
-            SizeBar(fraction: node.share(of: total), category: node.category).frame(width: 64)
+            MonospaceBytes(bytes: app.bytes(node)).frame(width: 96, alignment: .trailing)
+            SizeBar(fraction: Double(app.bytes(node)) / Double(max(total, 1)), category: node.category).frame(width: 64)
         }
         .frame(height: showPath ? SDTheme.rowHeight + 6 : SDTheme.rowHeight)
         .contentShape(Rectangle())
