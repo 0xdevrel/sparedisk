@@ -1,0 +1,169 @@
+import AppKit
+import SwiftUI
+
+struct BrowseView: View {
+    @Environment(AppState.self) private var app
+    let locationID: String
+
+    private var useReal: Bool { app.hasRealData && app.scans[locationID] != nil }
+    private var scan: ScanResult? { app.scans[locationID] }
+    private var locName: String {
+        app.locations.first(where: { $0.id == locationID })?.name ?? "Home folder"
+    }
+    private var all: [ScanNode] { app.hasRealData ? (scan?.topNodes ?? []) : MockData.topLevel }
+    private var total: Int64 { app.hasRealData ? (scan?.totalBytes ?? 0) : MockData.homeTree.logicalBytes }
+
+    private var nodes: [ScanNode] {
+        guard !app.searchText.isEmpty else { return all }
+        return all.filter { $0.name.localizedCaseInsensitiveContains(app.searchText) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text(locName).font(.system(size: 20, weight: .semibold))
+                if !useReal && !app.hasRealData {
+                    Text("Sample").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(.quaternary, in: Capsule())
+                }
+                Spacer()
+                if app.isScanning && app.scanningLocationID == locationID {
+                    Button("Cancel") { app.cancelScan() }.buttonStyle(.bordered).controlSize(.small)
+                } else if app.hasRealData {
+                    Button("Rescan") { app.rescanActive() }.buttonStyle(.bordered).controlSize(.small)
+                        .keyboardShortcut("r", modifiers: .command)
+                }
+                Text("Size basis: Logical").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+                    .help("Chart, table, inspector and queue use the same size basis")
+            }
+            .padding(.horizontal, SDTheme.Space.md)
+            .padding(.vertical, SDTheme.Space.sm)
+
+            HStack(spacing: 8) {
+                if let scan, useReal {
+                    Text("\(SDFormat.bytesString(scan.totalBytes)) scanned · \(scan.itemCount.formatted()) items")
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                } else if app.isScanning, let p = app.scanProgress {
+                    Text("Scanning · \(p.itemsFound.formatted()) items found · \(Int(p.elapsed))s elapsed")
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                } else {
+                    Text(app.hasRealData ? "No completed scan for this location" : "Sample data · choose a folder for your files")
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("Showing \(SDFormat.bytesString(nodes.reduce(0) { $0 + $1.logicalBytes })) of \(SDFormat.bytesString(total)) analyzed")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, SDTheme.Space.md)
+            .padding(.bottom, SDTheme.Space.xs)
+
+            if let scan, useReal, !scan.issues.isEmpty {
+                HStack {
+                    IssueBanner(text: "Scan finished. \(scan.issues.count) folders couldn't be read.")
+                }
+                .padding(.horizontal, SDTheme.Space.md)
+                .padding(.bottom, SDTheme.Space.xs)
+            }
+
+            Divider()
+
+            if nodes.isEmpty && !app.isScanning {
+                VStack(spacing: 8) {
+                    Text(app.searchText.isEmpty ? "No scanned files to show." : "No files match your search.").font(SDTheme.Font.body)
+                    Button("Choose Another Folder…") { Task { await app.addLocationFlow() } }.buttonStyle(.link)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if app.viewMode == .list {
+                FileListView(nodes: nodes, total: total)
+            } else {
+                TreemapView(nodes: nodes, total: total)
+            }
+        }
+    }
+}
+
+// Hierarchical sortable list (§F04) — List-based for full VoiceOver + keyboard support.
+struct FileListView: View {
+    @Environment(AppState.self) private var app
+    let nodes: [ScanNode]
+    let total: Int64
+
+    private var sorted: [ScanNode] {
+        nodes.sorted { $0.logicalBytes > $1.logicalBytes }
+    }
+
+    var body: some View {
+        List(selection: Binding(
+            get: { app.inspectedNodeID },
+            set: { app.inspectedNodeID = $0 }
+        )) {
+            Section {
+                ForEach(sorted) { node in
+                    if let kids = node.children, !kids.isEmpty {
+                        DisclosureGroup {
+                            ForEach(kids.sorted { $0.logicalBytes > $1.logicalBytes }) { kid in
+                                fileRow(kid)
+                                    .tag(kid.id)
+                            }
+                        } label: {
+                            fileRow(node)
+                                .tag(node.id)
+                        }
+                    } else {
+                        fileRow(node)
+                            .tag(node.id)
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Name").frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer()
+                    Text("Size").frame(width: 90, alignment: .trailing)
+                    Text("Share").frame(width: 64, alignment: .leading)
+                    Text("Review").frame(width: 52)
+                }
+                .font(SDTheme.Font.secondary)
+            }
+        }
+        .listStyle(.inset)
+
+    }
+
+    private func fileRow(_ node: ScanNode) -> some View {
+        HStack(spacing: 8) {
+            CategoryDot(category: node.category)
+            FileTypeIcon(node: node, size: 20)
+            Text(node.name).font(SDTheme.Font.body).lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if app.isQueued(node.id) {
+                Image(systemName: "tray.full.fill").foregroundStyle(Color.accentColor).help("In Review")
+            }
+            Spacer()
+            MonospaceBytes(bytes: node.logicalBytes).frame(width: 90, alignment: .trailing)
+            SizeBar(fraction: node.share(of: total), category: node.category).frame(width: 64)
+            Button(app.isQueued(node.id) ? "Queued" : "Review") {
+                app.toggleReview(node, source: "Browse")
+            }
+            .buttonStyle(.link).font(SDTheme.Font.secondary).frame(width: 52)
+            .disabled(!app.canReview(node))
+        }
+        .frame(height: SDTheme.rowHeight)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(app.isQueued(node.id) ? "Remove from Review" : "Add to Review") { app.toggleReview(node, source: "Browse") }.disabled(!app.canReview(node))
+            Button("Reveal in Finder") {
+                let u = URL(fileURLWithPath: node.path)
+                if (try? u.checkResourceIsReachable()) ?? false {
+                    NSWorkspace.shared.activateFileViewerSelecting([u])
+                }
+            }
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.path, forType: .string)
+            }
+        }
+    }
+}
