@@ -73,4 +73,13 @@ struct CleanupSafetyTests {
         #expect(app.reviewPlan.map(\.id) == ["p"])
         #expect(app.reviewPlanBytes == 900)
     }
+
+    // MARK: - Cloud residency (membership is not placeholder status)
+
+    @Test func onlyNotDownloadedIsPlaceholder() {
+        #expect(ScanEngine.cloudPlaceholder(status: .notDownloaded))
+        #expect(!ScanEngine.cloudPlaceholder(status: .downloaded))
+        #expect(!ScanEngine.cloudPlaceholder(status: .current))
+        #expect(!ScanEngine.cloudPlaceholder(status: nil))
+    }
 }

@@ -149,6 +149,16 @@ extension AppState {
             self.locations[i].scannedAt = result.finishedAt
             self.locations[i].issues = result.issues.count
             self.locations[i].access = result.issues.isEmpty ? .available : .partiallyAccessible("\(result.issues.count) unreadable")
+            // Refresh volume availability at completion time — capacity shown
+            // is timestamped by scannedAt, not by when the folder was added (P2).
+            if let (url, _) = try? LocationAccessService.resolve(id: locationID),
+               url.startAccessingSecurityScopedResource() {
+                defer { url.stopAccessingSecurityScopedResource() }
+                if let vals = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]) {
+                    if let t = vals.volumeTotalCapacity { self.locations[i].capacityBytes = Int64(t) }
+                    if let a = vals.volumeAvailableCapacity { self.locations[i].availableBytes = Int64(a) }
+                }
+            }
         }
         self.inspectedNodeID = result.topNodes.first?.id
     }

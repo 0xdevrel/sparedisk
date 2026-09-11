@@ -20,7 +20,7 @@ struct LargeFilesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header(title: "Large Files",
-                   sub: useReal ? "Files only · across \(app.scans.count) scanned location\(app.scans.count == 1 ? "" : "s") · packages count as units in Browse"
+                   sub: useReal ? "Retained ranking · top files seen during \(app.scans.count) scanned location\(app.scans.count == 1 ? "" : "s") · packages count as units in Browse"
                                 : "Sample · descending by size · scope Home folder")
             filterBar(threshold: $thresholdMB, extra: "Minimum size (MB)")
             if useReal && shown.isEmpty {
@@ -71,7 +71,7 @@ struct OlderFilesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(title: "Older Files", sub: useReal ? "By modification date · review before removing" : "Sample data · not your files")
+            header(title: "Older Files", sub: useReal ? "Retained ranking · by modification date · review before removing" : "Sample data · not your files")
             filterBar(threshold: $monthsBack, extra: "Not modified in (months)")
             if useReal && shown.isEmpty {
                 emptyHint("Nothing this old in the scanned locations.")

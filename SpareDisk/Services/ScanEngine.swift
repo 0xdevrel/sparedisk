@@ -48,7 +48,7 @@ enum ScanEngine {
         let started = Date()
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey,
                                       .fileSizeKey, .totalFileAllocatedSizeKey,
-                                      .contentModificationDateKey, .isUbiquitousItemKey]
+                                      .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey]
         var state = WalkState()
         guard let enumerator = FileManager.default.enumerator(at: root,
                                                               includingPropertiesForKeys: keys,
@@ -125,7 +125,10 @@ enum ScanEngine {
                 let vals = try url.resourceValues(forKeys: keys)
                 if vals.isSymbolicLink == true { continue } // record-link-don't-follow comes with full model; skip for totals
                 let isDir = vals.isDirectory ?? false
-                let isCloud = vals.isUbiquitousItem ?? false
+                // Residency, not membership: only not-downloaded placeholders
+                // are excluded from bulk cleanup. Downloaded iCloud files are
+                // local files (P2 accounting finding).
+                let isCloud = Self.cloudPlaceholder(status: vals.ubiquitousItemDownloadingStatus)
                 // Logical basis for v1 (allocated shown independently in inspector when available).
                 let bytes: Int64 = isDir ? 0 : Int64(vals.fileSize ?? 0) // folders aggregate from descendants
                 let stdComps = url.standardizedFileURL.pathComponents
@@ -178,6 +181,13 @@ enum ScanEngine {
                 state.issues.append(ScanIssue(path: url.path, message: (error as NSError).localizedDescription))
             }
         }
+    }
+
+    /// Placeholder test from download status alone. `nil` (non-cloud or
+    /// unknown) is not a placeholder — membership without residency evidence
+    /// never excludes a file. Pure function, unit-tested.
+    static func cloudPlaceholder(status: URLUbiquitousItemDownloadingStatus?) -> Bool {
+        status == .notDownloaded
     }
 
     /// Filesystem + volume numbers (ino/dev) for replacement detection at

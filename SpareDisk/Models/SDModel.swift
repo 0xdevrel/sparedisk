@@ -132,6 +132,7 @@ final class AppState {
             if case .location(let id) = selection { activeLocationID = id }
             searchText = ""
             inspectedNodeID = nil
+            mapTrail.removeAll()
         }
     }
     private var backStack: [SDSidebarSelection] = []
@@ -165,6 +166,8 @@ final class AppState {
     var reviewItems: [ReviewItem] = []
     var showInspector = false
     var breadcrumb: [ScanNode] = []
+    /// Map drill-down trail (root = current list). Empty means top level.
+    var mapTrail: [ScanNode] = []
 
     var activeLocationID = "home"
 

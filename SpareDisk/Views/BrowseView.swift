@@ -79,7 +79,7 @@ struct BrowseView: View {
             } else if app.viewMode == .list {
                 FileListView(nodes: nodes, total: total)
             } else {
-                TreemapView(nodes: nodes, total: total)
+                TreemapView(nodes: nodes)
             }
         }
     }
@@ -129,7 +129,18 @@ struct FileListView: View {
             }
         }
         .listStyle(.inset)
+        .onKeyPress(.space) {
+            // Finder convention: Space previews the selection.
+            guard let sel = selectedNode, !sel.isCloudPlaceholder else { return .ignored }
+            return app.preview(sel) == nil ? .handled : .ignored
+        }
 
+    }
+
+    private var selectedNode: ScanNode? {
+        guard let id = app.inspectedNodeID else { return nil }
+        let pool = nodes + nodes.flatMap { $0.children ?? [] }
+        return pool.first(where: { $0.id == id })
     }
 
     private func fileRow(_ node: ScanNode) -> some View {
@@ -154,12 +165,7 @@ struct FileListView: View {
         .contentShape(Rectangle())
         .contextMenu {
             Button(app.isQueued(node.id) ? "Remove from Review" : "Add to Review") { app.toggleReview(node, source: "Browse") }.disabled(!app.canReview(node))
-            Button("Reveal in Finder") {
-                let u = URL(fileURLWithPath: node.path)
-                if (try? u.checkResourceIsReachable()) ?? false {
-                    NSWorkspace.shared.activateFileViewerSelecting([u])
-                }
-            }
+            Button("Reveal in Finder") { app.reveal(node) }.disabled(app.scopeForNode(node) == nil)
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(node.path, forType: .string)
