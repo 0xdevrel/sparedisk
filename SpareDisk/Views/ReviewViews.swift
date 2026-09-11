@@ -21,11 +21,9 @@ struct ReviewQueueView: View {
                 Spacer()
                 if app.cleanupRunning {
                     Button("Cancel") { app.cancelCleanup() }.buttonStyle(.bordered)
-                } else {
+                } else if !app.reviewItems.isEmpty {
                     Button("Move to Trash…") { confirming = true }
                         .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                        .disabled(app.reviewItems.isEmpty)
                         .help("Each item is checked again before it moves")
                 }
             }

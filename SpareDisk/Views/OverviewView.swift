@@ -117,7 +117,7 @@ struct OverviewView: View {
                     Text("\(SDFormat.bytesString(loc.availableBytes)) available of \(SDFormat.bytesString(loc.capacityBytes))")
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 }
-                if let scan = app.activeScan {
+                if let scan = app.activeScan, scan.totalAllocated > 0 {
                     HStack(spacing: 4) {
                         Text("This folder occupies \(SDFormat.bytesString(scan.totalAllocated)) on disk, \(SDFormat.pct(Double(scan.totalAllocated) / Double(loc.capacityBytes))) of the volume.")
                             .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
