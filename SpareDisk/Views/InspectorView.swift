@@ -24,6 +24,10 @@ struct InspectorView: View {
                         Divider()
                         children(node)
                     }
+                    if node.isPackage, node.name.hasSuffix(".app") {
+                        Divider()
+                        related(node)
+                    }
                     Divider()
                     actions(node)
                 }
@@ -128,6 +132,60 @@ struct InspectorView: View {
                     }
                 }
                 .buttonStyle(.link).font(SDTheme.Font.secondary)
+            }
+        }
+    }
+
+    private func related(_ node: ScanNode) -> some View {
+        let found = app.relatedData(for: node)
+        let evidence = app.relatedEvidence["related#\(node.id)"] ?? [:]
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Related data").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                Spacer()
+                if app.relatedScanningID == node.id {
+                    ProgressView().controlSize(.mini)
+                } else if found == nil {
+                    if app.homeLocation == nil {
+                        Text("Add your home folder to look").font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
+                    } else {
+                        Button("Find") { app.findRelatedData(for: node) }.buttonStyle(.link).font(SDTheme.Font.secondary)
+                    }
+                }
+            }
+            if let found {
+                if found.isEmpty {
+                    Text("Nothing found under your Library for this app.")
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                } else {
+                    ForEach(found) { item in
+                        Button {
+                            app.inspectedNodeID = item.id
+                        } label: {
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 6) {
+                                    FileTypeIcon(node: item, size: 14)
+                                    Text(item.name).font(SDTheme.Font.secondary).lineLimit(1)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    if app.isQueued(item.id) {
+                                        Image(systemName: "tray.full").font(.system(size: 10)).foregroundStyle(Color.accentColor)
+                                    }
+                                    Text(SDFormat.bytesString(item.logicalBytes))
+                                        .font(SDTheme.Font.secondary.monospacedDigit()).foregroundStyle(.secondary)
+                                }
+                                if let e = evidence[item.path] {
+                                    Text(e).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                                        .padding(.leading, 20)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu { NodeContextMenu(node: item, source: "Related data") }
+                    }
+                    Text("Total \(SDFormat.bytesString(found.reduce(0) { $0 + $1.logicalBytes })). Matches by identifier are reliable; matches by name may belong to something else.")
+                        .font(.system(size: 11)).foregroundStyle(.tertiary)
+                }
             }
         }
     }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Principal visual mode (§3.9, §7.4): squarified areas, flat fills, crisp
@@ -168,6 +169,20 @@ struct TreemapView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .focusable()
+        .onKeyPress(.rightArrow) { step(entries.map(\.node), by: 1); return .handled }
+        .onKeyPress(.leftArrow) { step(entries.map(\.node), by: -1); return .handled }
+        .onKeyPress(.downArrow) { step(entries.map(\.node), by: 1); return .handled }
+        .onKeyPress(.upArrow) { step(entries.map(\.node), by: -1); return .handled }
+    }
+
+    /// Arrow keys walk the level by size rank; selection wraps.
+    private func step(_ ordered: [ScanNode], by delta: Int) {
+        let real = ordered.filter { !$0.id.hasPrefix("__") }
+        guard !real.isEmpty else { return }
+        let current = real.firstIndex(where: { $0.id == app.inspectedNodeID }) ?? (delta > 0 ? -1 : 0)
+        let next = ((current + delta) % real.count + real.count) % real.count
+        app.inspectedNodeID = real[next].id
     }
 
     // MARK: - Cells
@@ -236,6 +251,7 @@ struct TreemapView: View {
         .onKeyPress(.return) { if embedded { open(node) } else { drill(node) }; return .handled }
         .onKeyPress(.space) { app.preview(node); return .handled }
         .contextMenu { NodeContextMenu(node: node, source: "Map") }
+        .onDrag { NSItemProvider(object: URL(fileURLWithPath: node.path) as NSURL) }
         .help("\(node.name)\n\(SDFormat.bytesString(node.logicalBytes))\(node.isFolder && !node.isPackage ? "\nDouble-click to open" : "")")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(node.name), \(SDFormat.bytesString(node.logicalBytes))\(node.isFolder ? ", folder" : "")")

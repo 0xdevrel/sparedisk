@@ -161,32 +161,37 @@ nonisolated enum CleanupService {
             return .blocked("Not downloaded. Use Finder to delete it or remove the download.")
         }
 
-        let isDir = vals.isDirectory ?? false
-        if isDir != node.isFolder {
+        // Live facts come from the same lstat path the scanner used, so the
+        // timestamps are built identically. Foundation's dates for
+        // directories differ from lstat by about 100 ns, which made strict
+        // equality fail at random.
+        guard let live = ScanEngine.lstat(path: target.path) else { return .gone }
+        if live.isDir != node.isFolder {
             return .changed("Changed type after review. Review it again.")
         }
         if node.isFolder {
-            // `modified` is the directory's own mtime (scanner invariant, P1):
-            // comparable with the live directory's own mtime.
-            if let old = node.modified, let now = vals.contentModificationDate, old != now {
+            if let old = node.modified, let now = live.modified, !sameInstant(old, now) {
                 return .changed("This folder changed after you added it. Review its updated contents.")
             }
             if let hit = firstManagedDescendant(in: target) {
                 return .blocked("Contains \(hit), which is managed by another app.")
             }
         } else {
-            let (fnum, vnum) = ScanEngine.identityNumbers(for: target)
-            if !identityMatches(node: node, fileNumber: fnum, volumeNumber: vnum) {
+            if !identityMatches(node: node, fileNumber: live.ino, volumeNumber: live.dev) {
                 return .changed("Replaced after review by a different file with the same name.")
             }
-            let sizeChanged = Int64(vals.fileSize ?? 0) != node.logicalBytes
-            let dateChanged = (node.modified != nil && vals.contentModificationDate != nil
-                               && node.modified != vals.contentModificationDate)
+            let sizeChanged = live.size != node.logicalBytes
+            let dateChanged = node.modified != nil && live.modified != nil && !sameInstant(node.modified!, live.modified!)
             if sizeChanged || dateChanged {
                 return .changed("Changed after review. Review it again.")
             }
         }
         return .ok
+    }
+
+    /// Timestamps equal within a microsecond count as the same instant.
+    static func sameInstant(_ a: Date, _ b: Date) -> Bool {
+        abs(a.timeIntervalSinceReferenceDate - b.timeIntervalSinceReferenceDate) < 0.000_001
     }
 
     /// Stable-identity comparison (ino/dev). Unknown stored identity falls

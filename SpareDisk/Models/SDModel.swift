@@ -283,6 +283,10 @@ final class AppState {
     var drillTask: Task<Void, Never>?
     var drillGeneration = 0
     var expandedIDs: Set<String> = []
+    /// Related-data lookups for app bundles, keyed "related#<app node id>".
+    var relatedScanningID: String?
+    var relatedTask: Task<Void, Never>?
+    var relatedEvidence: [String: [String: String]] = [:]
 
     // MARK: - Cleanup execution state (§F10)
     var cleanupRunning = false

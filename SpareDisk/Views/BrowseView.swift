@@ -263,5 +263,6 @@ struct FileRow: View {
         .frame(height: showPath ? SDTheme.rowHeight + 6 : SDTheme.rowHeight)
         .contentShape(Rectangle())
         .contextMenu { NodeContextMenu(node: node, source: "Browse") }
+        .onDrag { NSItemProvider(object: URL(fileURLWithPath: node.path) as NSURL) }
     }
 }

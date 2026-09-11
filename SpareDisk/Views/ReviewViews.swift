@@ -38,7 +38,7 @@ struct ReviewQueueView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.largeTitle).foregroundStyle(.secondary)
                     Text("No files staged for cleanup.").font(SDTheme.Font.body)
-                    Text("Select an item and choose Add to Review. Nothing moves until you confirm here.").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                    Text("Select an item and choose Add to Review, or drag files here. Nothing moves until you confirm.").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -111,6 +111,10 @@ struct ReviewQueueView: View {
                     }
                 }.listStyle(.inset)
             }
+        }
+        .animation(.default, value: app.reviewItems.map(\.id))
+        .dropDestination(for: URL.self) { urls, _ in
+            app.stage(urls: urls, source: "Drag") > 0
         }
         .sheet(isPresented: $confirming) {
             VStack(alignment: .leading, spacing: 12) {
