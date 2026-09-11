@@ -117,6 +117,7 @@ enum SDSidebarSelection: Hashable {
     case location(String)
     case largeFiles
     case olderFiles
+    case duplicates
     case review
 }
 
@@ -203,6 +204,17 @@ final class AppState {
     var cleanupTask: Task<Void, Never>?
     var lastCleanupSummary: String?
 
+    // MARK: - Duplicate detection state (§F07, on demand only)
+    var duplicateGroups: [DuplicateGroup] = []
+    var duplicateSkips: [DuplicateSkip] = []
+    var duplicateKeepers: [String: String] = [:]
+    var duplicateRunning = false
+    var duplicateChecked = 0
+    var duplicateTotal = 0
+    var duplicateCurrent: String?
+    var duplicateTask: Task<Void, Never>?
+    var duplicateNotice: String?
+
     var hasRealData: Bool { !locations.isEmpty }
     var activeScan: ScanResult? { scans[activeLocationID] }
     var activeNodes: [ScanNode] { activeScan?.topNodes ?? [] }
@@ -229,7 +241,7 @@ final class AppState {
     var searchPrompt: String {
         switch selection {
         case .location: return "Search in \(activeLocation?.name ?? "location")"
-        case .largeFiles, .olderFiles: return "Search scanned files"
+        case .largeFiles, .olderFiles, .duplicates: return "Search scanned files"
         default: return "Search"
         }
     }

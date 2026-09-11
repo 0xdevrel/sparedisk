@@ -9,8 +9,16 @@ extension AppState {
     func runCleanup() async {
         cleanupResults = []
         lastCleanupSummary = nil
-        let plan = reviewPlan
-        guard !plan.isEmpty else { return }
+        // A verified group's last remaining copy is never staged (F07).
+        let (keptPlan, keeperSkips) = DuplicateService.protectKeepers(
+            plan: reviewPlan, groups: duplicateGroups, keepers: duplicateKeepers)
+        let plan = keptPlan
+        guard !plan.isEmpty else {
+            cleanupResults = keeperSkips
+            lastCleanupSummary = keeperSkips.isEmpty ? nil
+                : "Nothing staged — every queued item is a protected last copy."
+            return
+        }
 
         // Match each item to an authorized scope; resolve each scope once,
         // refreshing stale stored access while it can still be renewed (P1).
@@ -87,7 +95,7 @@ extension AppState {
         }
         let done = await worker.value
 
-        let results = early + done
+        let results = early + keeperSkips + done
         cleanupResults = results
 
         let moved = results.filter(\.didMove)

@@ -75,6 +75,7 @@ struct CenterView: View {
             case .location(let id): BrowseView(locationID: id)
             case .largeFiles: LargeFilesView()
             case .olderFiles: OlderFilesView()
+            case .duplicates: DuplicatesView()
             case .review: ReviewQueueView()
             }
             StatusBarView()

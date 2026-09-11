@@ -51,6 +51,16 @@ struct SidebarView: View {
             Section("Find") {
                 Label("Large Files", systemImage: "doc.text.magnifyingglass").tag(SDSidebarSelection.largeFiles)
                 Label("Older Files", systemImage: "calendar").tag(SDSidebarSelection.olderFiles)
+                HStack {
+                    Label("Duplicates", systemImage: "doc.on.doc").tag(SDSidebarSelection.duplicates)
+                    Spacer()
+                    if !app.duplicateGroups.isEmpty && !app.duplicateRunning {
+                        Text("\(app.duplicateGroups.count)")
+                            .font(.caption.monospacedDigit())
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                    }
+                }
             }
             Section("Cleanup") {
                 HStack {
