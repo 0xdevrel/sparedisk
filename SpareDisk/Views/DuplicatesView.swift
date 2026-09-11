@@ -9,48 +9,43 @@ struct DuplicatesView: View {
     var body: some View {
         @Bindable var app = app
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Duplicates").font(.system(size: 20, weight: .semibold))
-                Text(scopeLine).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            ScreenBar {
+                if app.duplicateRunning {
+                    ProgressView().controlSize(.small)
+                    Text(progressLine)
+                } else if !app.duplicateGroups.isEmpty {
+                    Text("\(app.duplicateGroups.count) groups, \(SDFormat.bytesString(redundantTotal)) redundant")
+                } else {
+                    Text(scopeLine)
+                }
+            } trailing: {
+                if app.hasRealData {
+                    SearchField(text: $app.searchText, prompt: "Search duplicates")
+                    if app.duplicateRunning {
+                        Button("Cancel") { app.cancelDuplicates() }
+                    } else {
+                        Button(app.duplicateGroups.isEmpty ? "Find Duplicates" : "Find Again") {
+                            app.duplicateTask = Task { await app.findDuplicates() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Reads file contents to compare them. Everything stays on this Mac.")
+                    }
+                }
             }
-            .padding(.horizontal, SDTheme.Space.md).padding(.vertical, SDTheme.Space.sm)
 
             if !app.hasRealData {
                 VStack(spacing: 8) {
                     Text("Scan a location first.").font(SDTheme.Font.body)
                     Text("Duplicates are found among the scanned large files. Nothing is uploaded.")
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                    Button("Choose a Folder…") { Task { await app.addLocationFlow() } }
-                        .buttonStyle(.link)
+                    Button("Add Location…") { Task { await app.addLocationFlow() } }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-            HStack(spacing: 8) {
-                if app.duplicateRunning {
-                    ProgressView().controlSize(.small)
-                    Text(progressLine).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Cancel") { app.cancelDuplicates() }.buttonStyle(.bordered).controlSize(.small)
-                } else {
-                    Button(app.duplicateGroups.isEmpty ? "Find Duplicates" : "Find Again") {
-                        app.duplicateTask = Task { await app.findDuplicates() }
-                    }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                    .help("Reads file contents to compare them. Everything stays on this Mac.")
-                    if !app.duplicateGroups.isEmpty {
-                        Text("\(app.duplicateGroups.count) groups · \(SDFormat.bytesString(redundantTotal)) logical redundancy")
-                            .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(.horizontal, SDTheme.Space.md).padding(.bottom, SDTheme.Space.xs)
-
             if let notice = app.duplicateNotice {
                 Text(notice).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                    .padding(.horizontal, SDTheme.Space.md).padding(.bottom, SDTheme.Space.xs)
+                    .padding(.horizontal, SDTheme.Space.md).padding(.vertical, SDTheme.Space.xs)
             }
-
-            Divider()
 
             if app.duplicateRunning && app.duplicateGroups.isEmpty {
                 VStack(spacing: 8) {
@@ -105,7 +100,7 @@ struct DuplicatesView: View {
     // MARK: - Derived
 
     private var scopeLine: String {
-        "Compared among the largest files of \(app.scans.count) scanned location\(app.scans.count == 1 ? "" : "s"), 1 MB and up"
+        "Compares the largest files of every scanned location, 1 MB and up"
     }
 
     private var progressLine: String {

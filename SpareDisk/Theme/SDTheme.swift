@@ -61,7 +61,42 @@ enum SDTheme {
         }
     }
 
+    // MARK: Map palette
+    // Eight muted hues assigned by rank within a level, so the largest items
+    // are always distinguishable and the map is never a single grey block.
+    // Category colors stay for dots and bars; the map is about shape.
+    private static let hues: [(Double, Double, Double)] = [
+        (0.36, 0.55, 0.86), // blue
+        (0.34, 0.68, 0.62), // teal
+        (0.86, 0.60, 0.30), // amber
+        (0.70, 0.48, 0.80), // violet
+        (0.86, 0.45, 0.50), // rose
+        (0.52, 0.70, 0.42), // green
+        (0.86, 0.72, 0.36), // gold
+        (0.50, 0.58, 0.70), // slate
+    ]
+
+    static func hue(_ index: Int, scheme: ColorScheme) -> Color {
+        let (r, g, b) = hues[((index % hues.count) + hues.count) % hues.count]
+        if scheme == .dark {
+            return Color(red: r * 0.78, green: g * 0.78, blue: b * 0.78)
+        }
+        return Color(red: r, green: g, blue: b)
+    }
+
+    /// Fill for a top-level map cell: a solid, appearance-tuned tint that
+    /// keeps white or black text legible.
+    static func mapFill(hue index: Int, scheme: ColorScheme, emphasized: Bool) -> Color {
+        let base = hue(index, scheme: scheme)
+        switch scheme {
+        case .dark: return base.opacity(emphasized ? 1.0 : 0.82)
+        default: return base.opacity(emphasized ? 0.62 : 0.42)
+        }
+    }
+
     static let rowHeight: CGFloat = 34
+    /// Height of the bar that sits under the window toolbar on every screen.
+    static let screenBarHeight: CGFloat = 40
     static let corner: CGFloat = 8
 }
 
@@ -130,5 +165,59 @@ struct IssueBanner: View {
         }
         .padding(8)
         .background(Color.orange.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+// MARK: - Screen bar and search
+
+/// The strip under the toolbar that every screen shares: context on the
+/// left, controls on the right, one height, one padding.
+struct ScreenBar<Leading: View, Trailing: View>: View {
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                HStack(spacing: 10) { leading }
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                HStack(spacing: 8) { trailing }
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, SDTheme.Space.md)
+            .frame(height: SDTheme.screenBarHeight)
+            Divider()
+        }
+    }
+}
+
+/// A compact search field that lives inside the content column, so it
+/// aligns with the content instead of floating over the inspector.
+struct SearchField: View {
+    @Binding var text: String
+    var prompt = "Search"
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.system(size: 11, weight: .medium))
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+                .focused($focused)
+            if !text.isEmpty {
+                Button { text = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 7)
+        .frame(width: 200, height: 24)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(focused ? Color.accentColor : Color.primary.opacity(0.10), lineWidth: focused ? 1.5 : 1))
+        .onKeyPress(.escape) { text = ""; return .handled }
     }
 }

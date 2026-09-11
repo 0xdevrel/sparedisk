@@ -15,17 +15,19 @@ struct LargeFilesView: View {
     }
 
     var body: some View {
+        @Bindable var app = app
         VStack(alignment: .leading, spacing: 0) {
-            filterBar {
+            ScreenBar {
+                Text(useReal ? "The 200 largest files from each scanned location" : "Sample data")
+            } trailing: {
                 Picker("Larger than", selection: $thresholdMB) {
                     Text("100 MB").tag(100)
                     Text("500 MB").tag(500)
                     Text("1 GB").tag(1000)
                     Text("5 GB").tag(5000)
                 }
-                .frame(width: 190)
-                Text(useReal ? "The 200 largest files from each scanned location" : "Sample data")
-                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                .frame(width: 170)
+                SearchField(text: $app.searchText, prompt: "Search large files")
             }
             if useReal && shown.isEmpty {
                 emptyHint("No files this large in the scanned locations.")
@@ -75,17 +77,19 @@ struct OlderFilesView: View {
     }
 
     var body: some View {
+        @Bindable var app = app
         VStack(alignment: .leading, spacing: 0) {
-            filterBar {
+            ScreenBar {
+                Text(useReal ? "The 200 oldest files from each scanned location, by modification date" : "Sample data")
+            } trailing: {
                 Picker("Not modified in", selection: $monthsBack) {
                     Text("6 months").tag(6)
                     Text("1 year").tag(12)
                     Text("2 years").tag(24)
                     Text("5 years").tag(60)
                 }
-                .frame(width: 210)
-                Text(useReal ? "The 200 oldest files from each scanned location, by modification date" : "Sample data")
-                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                .frame(width: 190)
+                SearchField(text: $app.searchText, prompt: "Search older files")
             }
             if useReal && shown.isEmpty {
                 emptyHint("Nothing this old in the scanned locations.")
@@ -113,14 +117,6 @@ struct OlderFilesView: View {
             }
         }
     }
-}
-
-private func filterBar<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-    HStack(spacing: 10) {
-        content()
-        Spacer()
-    }
-    .padding(.horizontal, SDTheme.Space.md).padding(.vertical, SDTheme.Space.xs)
 }
 
 private func emptyHint(_ text: String) -> some View {

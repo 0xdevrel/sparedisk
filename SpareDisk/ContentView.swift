@@ -9,13 +9,6 @@ struct ContentView: View {
         return false
     }
 
-    private var canSearch: Bool {
-        switch app.selection {
-        case .location, .largeFiles, .olderFiles: return true
-        default: return false
-        }
-    }
-
     private var title: String {
         switch app.selection {
         case .overview: "Overview"
@@ -27,23 +20,42 @@ struct ContentView: View {
         }
     }
 
+    private var subtitle: String {
+        switch app.selection {
+        case .location(let id):
+            if let scan = app.scans[id] {
+                return "\(SDFormat.bytesString(scan.totalBytes)), \(scan.itemCount.formatted()) items"
+            }
+            if app.scanningLocationID == id, let p = app.scanProgress {
+                return "Scanning, \(p.itemsFound.formatted()) items"
+            }
+            return "Not scanned"
+        case .overview:
+            let scanned = app.locations.filter { app.scans[$0.id] != nil }.count
+            return app.locations.isEmpty ? "" : "\(scanned) of \(app.locations.count) locations scanned"
+        case .review:
+            return app.reviewPlan.isEmpty ? "" : "\(app.reviewPlan.count) items, \(SDFormat.bytesString(app.reviewPlanBytes))"
+        case .duplicates:
+            return app.duplicateGroups.isEmpty ? "" : "\(app.duplicateGroups.count) groups"
+        default:
+            return ""
+        }
+    }
+
     var body: some View {
         @Bindable var app = app
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 224, max: 260)
         } detail: {
-            if canSearch {
-                CenterView().searchable(text: $app.searchText, prompt: app.searchPrompt)
-            } else {
-                CenterView()
-            }
+            CenterView()
         }
         .inspector(isPresented: $app.showInspector) {
             InspectorView()
                 .inspectorColumnWidth(min: 280, ideal: 300, max: 340)
         }
         .navigationTitle(title)
+        .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button("Back", systemImage: "chevron.left", action: app.goBack)
@@ -51,22 +63,26 @@ struct ContentView: View {
                 Button("Forward", systemImage: "chevron.right", action: app.goForward)
                     .disabled(!app.canGoForward).help("Forward (⌘])")
             }
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 if isBrowsing {
+                    if app.isScanning && app.scanningLocationID == app.activeLocationID {
+                        Button("Cancel Scan", systemImage: "xmark.circle") { app.cancelScan() }
+                            .help("Cancel the scan")
+                    } else {
+                        Button("Rescan", systemImage: "arrow.clockwise") { app.rescanActive() }
+                            .help("Rescan this location (⌘R)")
+                            .disabled(app.activeLocation == nil)
+                    }
                     Picker("View", selection: $app.viewMode) {
                         Label("List", systemImage: "list.bullet").tag(SDViewMode.list)
                         Label("Map", systemImage: "square.grid.2x2").tag(SDViewMode.map)
                     }
-                    .pickerStyle(.segmented).frame(width: 150)
+                    .pickerStyle(.segmented)
                     .help("View as list or map")
                 }
-            }
-            ToolbarItem(placement: .primaryAction) {
                 Button("Add Location", systemImage: "folder.badge.plus") {
                     Task { await app.addLocationFlow() }
                 }.help("Add a folder to analyze (⌘O)")
-            }
-            ToolbarItem(placement: .primaryAction) {
                 Button("Toggle Inspector", systemImage: "sidebar.trailing") {
                     app.showInspector.toggle()
                 }.help("Toggle inspector (⌘I)")

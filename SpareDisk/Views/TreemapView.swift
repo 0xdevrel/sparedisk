@@ -9,6 +9,8 @@ struct TreemapView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var hoveredID: String?
     let nodes: [ScanNode]
+    /// Embedded in Overview: no breadcrumb, no drilling, click opens Browse.
+    var embedded = false
 
     private var focus: ScanNode? { app.mapTrail.last }
 
@@ -21,7 +23,7 @@ struct TreemapView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            breadcrumb
+            if !embedded { breadcrumb }
             GeometryReader { geo in
                 if geo.size.width < 160 || geo.size.height < 120 {
                     Text("Widen the window to see the map.")
@@ -33,8 +35,8 @@ struct TreemapView: View {
                     mapBody(size: geo.size)
                 }
             }
-            .padding(.horizontal, SDTheme.Space.md)
-            .padding(.vertical, SDTheme.Space.xs)
+            .padding(.horizontal, embedded ? 0 : SDTheme.Space.md)
+            .padding(.vertical, embedded ? 0 : SDTheme.Space.xs)
         }
     }
 
@@ -147,6 +149,7 @@ struct TreemapView: View {
         let entries = aggregated(levelNodes, in: rect)
         let frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: rect)
         let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.node.id, $0) })
+        let rank = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($0.element.node.id, $0.offset) })
         return ZStack(alignment: .topLeading) {
             ForEach(frames, id: \.id) { frame in
                 if let entry = byID[frame.id] {
@@ -155,7 +158,7 @@ struct TreemapView: View {
                         if entry.isOther {
                             otherCell(entry: entry, rect: r)
                         } else {
-                            cell(node: entry.node, rect: r)
+                            cell(node: entry.node, rect: r, hue: rank[entry.node.id] ?? 0)
                         }
                     }
                     .frame(width: max(0, r.width), height: max(0, r.height))
@@ -188,7 +191,7 @@ struct TreemapView: View {
         }
     }
 
-    private func cell(node: ScanNode, rect: CGRect) -> some View {
+    private func cell(node: ScanNode, rect: CGRect, hue: Int) -> some View {
         let isSelected = selected(node)
         let isHovered = hoveredID == node.id
         let labels = plan(for: rect)
@@ -205,7 +208,7 @@ struct TreemapView: View {
         let nestedByID = Dictionary(uniqueKeysWithValues: nested.map { ($0.node.id, $0) })
 
         return ZStack(alignment: .topLeading) {
-            Rectangle().fill(SDTheme.mapFill(for: node.category, scheme: scheme, emphasized: isHovered || isSelected))
+            Rectangle().fill(SDTheme.mapFill(hue: hue, scheme: scheme, emphasized: isHovered || isSelected))
             if labels != .none {
                 cellLabel(node: node, plan: labels)
                     .padding(.horizontal, 5)
@@ -226,11 +229,11 @@ struct TreemapView: View {
                         lineWidth: isSelected ? 2 : 1)
         }
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { drill(node) }
+        .onTapGesture(count: 2) { if embedded { open(node) } else { drill(node) } }
         .onTapGesture { app.inspectedNodeID = node.id }
         .onHover { hoveredID = $0 ? node.id : (hoveredID == node.id ? nil : hoveredID) }
         .focusable()
-        .onKeyPress(.return) { drill(node); return .handled }
+        .onKeyPress(.return) { if embedded { open(node) } else { drill(node) }; return .handled }
         .onKeyPress(.space) { app.preview(node); return .handled }
         .contextMenu { NodeContextMenu(node: node, source: "Map") }
         .help("\(node.name)\n\(SDFormat.bytesString(node.logicalBytes))\(node.isFolder && !node.isPackage ? "\nDouble-click to open" : "")")
@@ -286,7 +289,7 @@ struct TreemapView: View {
         let showName = !showBoth && rect.width >= 56 && rect.height >= 16
         let showSize = !showBoth && !showName && rect.width >= 52 && rect.height >= 16
         return ZStack(alignment: .topLeading) {
-            Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(entry.isOther ? 0.35 : (isHovered || isSelected ? 0.75 : 0.55)))
+            Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(entry.isOther ? 0.30 : (isHovered || isSelected ? 0.62 : 0.45)))
             if showBoth {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(kid.name).font(.system(size: 10, weight: .medium)).lineLimit(1)
@@ -304,7 +307,7 @@ struct TreemapView: View {
             Rectangle().stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.10), lineWidth: isSelected ? 2 : 1)
         }
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { if !entry.isOther { drill(kid) } }
+        .onTapGesture(count: 2) { if !entry.isOther { if embedded { open(kid) } else { drill(kid) } } }
         .onTapGesture { if !entry.isOther { app.inspectedNodeID = kid.id } }
         .onHover { if !entry.isOther { hoveredID = $0 ? kid.id : (hoveredID == kid.id ? nil : hoveredID) } }
         .help(entry.isOther ? "\(entry.members) smaller items, \(SDFormat.bytesString(kid.logicalBytes))"
@@ -334,10 +337,10 @@ struct TreemapView: View {
             Rectangle().stroke(Color.primary.opacity(0.12), lineWidth: 1)
         }
         .contentShape(Rectangle())
-        .onTapGesture { app.viewMode = .list }
+        .onTapGesture { showInList() }
         .onHover { hoveredID = $0 ? entry.node.id : (hoveredID == entry.node.id ? nil : hoveredID) }
         .focusable()
-        .onKeyPress(.return) { app.viewMode = .list; return .handled }
+        .onKeyPress(.return) { showInList(); return .handled }
         .help("\(entry.members) items too small to draw, \(SDFormat.bytesString(entry.node.logicalBytes)) in total.\nClick to see them in the list.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(entry.members) smaller items, \(SDFormat.bytesString(entry.node.logicalBytes)). Activate to show in list.")
@@ -347,6 +350,23 @@ struct TreemapView: View {
     // MARK: - Helpers
 
     private func selected(_ node: ScanNode) -> Bool { app.inspectedNodeID == node.id }
+
+    /// Embedded map: jump to the location's full map, focused on the folder.
+    private func open(_ node: ScanNode) {
+        guard let id = app.activeLocation?.id else { return }
+        app.viewMode = .map
+        app.selection = .location(id)
+        if node.isFolder, !node.isPackage {
+            app.mapTrail = [node]
+            app.ensureChildren(node)
+        }
+        app.inspectedNodeID = node.id
+    }
+
+    private func showInList() {
+        app.viewMode = .list
+        if embedded, let id = app.activeLocation?.id { app.selection = .location(id) }
+    }
 
     private func drill(_ node: ScanNode) {
         guard node.isFolder, !node.isPackage, !node.isCloudPlaceholder else { return }

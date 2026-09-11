@@ -12,23 +12,17 @@ struct ReviewQueueView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Review Cleanup").font(.system(size: 20, weight: .semibold))
-                    Text(app.reviewItems.isEmpty ? "Nothing staged yet." : "\(planCount) items, \(SDFormat.bytesString(total)). Items inside a queued folder are counted once.")
-                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                }
-                Spacer()
+            ScreenBar {
+                Text(app.reviewItems.isEmpty ? "Nothing staged yet." : "Items inside a queued folder are counted once.")
+            } trailing: {
                 if app.cleanupRunning {
-                    Button("Cancel") { app.cancelCleanup() }.buttonStyle(.bordered)
+                    Button("Cancel") { app.cancelCleanup() }
                 } else if !app.reviewItems.isEmpty {
-                    Button("Move to Trash…") { confirming = true }
+                    Button("Move \(planCount) Items to Trash…") { confirming = true }
                         .buttonStyle(.borderedProminent)
                         .help("Each item is checked again before it moves")
                 }
             }
-            .padding(SDTheme.Space.md)
-            Divider()
 
             if app.cleanupRunning {
                 VStack(spacing: 8) {

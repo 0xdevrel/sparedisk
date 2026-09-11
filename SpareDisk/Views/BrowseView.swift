@@ -30,8 +30,8 @@ struct BrowseView: View {
         if let scan, app.hasRealData {
             let when = scan.finishedAt.formatted(.relative(presentation: .named))
             let disk = scan.totalAllocated > 0 && scan.totalAllocated < scan.totalBytes * 9 / 10
-                ? ", \(SDFormat.bytesString(scan.totalAllocated)) on disk" : ""
-            return "\(SDFormat.bytesString(scan.totalBytes)) in \(scan.itemCount.formatted()) items\(disk), scanned \(when)"
+                ? "\(SDFormat.bytesString(scan.totalAllocated)) on disk, " : ""
+            return "\(disk)scanned \(when)"
         }
         if scanningHere, let p = app.scanProgress {
             return "Scanning, \(p.itemsFound.formatted()) items so far"
@@ -40,42 +40,35 @@ struct BrowseView: View {
     }
 
     var body: some View {
+        @Bindable var app = app
         VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(statusLine).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                    .help("Sizes are logical file sizes. On-disk allocation is shown in the inspector.")
-                if let scan, app.hasRealData, !scan.issues.isEmpty {
-                    Button("\(scan.issues.count) unreadable", systemImage: "exclamationmark.triangle.fill") {
-                        app.showScanIssues = true
+            if scan != nil || scanningHere || !app.hasRealData {
+                ScreenBar {
+                    Text(statusLine)
+                        .help("Sizes are logical file sizes. On-disk allocation is shown alongside where it differs.")
+                    if let scan, app.hasRealData, !scan.issues.isEmpty {
+                        Button {
+                            app.showScanIssues = true
+                        } label: {
+                            Label("\(scan.issues.count) unreadable", systemImage: "exclamationmark.triangle.fill")
+                        }
+                        .buttonStyle(.plain).foregroundStyle(.orange)
+                        .help("Some folders could not be read")
                     }
-                    .buttonStyle(.plain).font(SDTheme.Font.secondary).foregroundStyle(.orange)
-                    .help("Some folders could not be read")
-                }
-                Spacer()
-                if searching {
-                    Text("\(nodes.count) matching \(SDFormat.bytesString(nodes.reduce(0) { $0 + $1.logicalBytes }))")
-                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                }
-                if scanningHere {
-                    Button("Cancel") { app.cancelScan() }.controlSize(.small)
-                } else if app.hasRealData {
-                    Button("Rescan") { app.rescanActive() }.controlSize(.small)
-                        .disabled(location?.access.isOK == false && scan == nil)
+                    if searching {
+                        Text("\(nodes.count) matching, \(SDFormat.bytesString(nodes.reduce(0) { $0 + $1.logicalBytes }))")
+                    }
+                } trailing: {
+                    SearchField(text: $app.searchText, prompt: "Search \(location?.name ?? "")")
                 }
             }
-            .padding(.horizontal, SDTheme.Space.md)
-            .padding(.vertical, SDTheme.Space.xs)
 
-            Divider()
-
-            if nodes.isEmpty && !scanningHere {
+            if scan == nil && !scanningHere && app.hasRealData {
+                notScanned
+            } else if nodes.isEmpty && !scanningHere {
                 VStack(spacing: 8) {
-                    Text(searching ? "No items match \"\(app.searchText)\"." : "Nothing scanned yet.").font(SDTheme.Font.body)
-                    if !searching {
-                        Button(app.hasRealData ? "Scan Now" : "Add Location…") {
-                            if app.hasRealData { app.rescanActive() } else { Task { await app.addLocationFlow() } }
-                        }
-                    }
+                    Text(searching ? "No items match \"\(app.searchText)\"." : "This folder is empty.")
+                        .font(SDTheme.Font.body).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if app.viewMode == .list || searching {
@@ -84,6 +77,24 @@ struct BrowseView: View {
                 TreemapView(nodes: nodes)
             }
         }
+    }
+
+    /// The one clear call to action for a location that has never been read.
+    private var notScanned: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "folder").font(.system(size: 44, weight: .light)).foregroundStyle(.tertiary)
+            VStack(spacing: 4) {
+                Text(location?.name ?? "This folder").font(.system(size: 20, weight: .semibold))
+                Text(location?.id ?? "").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
+            Button("Scan \(location?.name ?? "Folder")") { app.rescanActive() }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+            if let l = location, !l.access.isOK {
+                Text(l.access.label).font(SDTheme.Font.secondary).foregroundStyle(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

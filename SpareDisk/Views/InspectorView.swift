@@ -130,23 +130,29 @@ struct InspectorView: View {
     }
 
     private func actions(_ node: ScanNode) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Button("Quick Look") { actionNotice = app.preview(node) }
-                    .disabled(!hasGrant(node) || node.isCloudPlaceholder)
-                Button("Show in Finder") { actionNotice = app.reveal(node) }
-                    .disabled(!hasGrant(node))
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                app.toggleReview(node, source: "Inspector")
+            } label: {
+                Text(app.isQueued(node.id) ? "Remove from Review" : "Add to Review").frame(maxWidth: .infinity)
             }
-            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!app.canReview(node))
+            HStack(spacing: 8) {
+                Button { actionNotice = app.preview(node) } label: {
+                    Label("Quick Look", systemImage: "eye").frame(maxWidth: .infinity)
+                }
+                .disabled(!hasGrant(node) || node.isCloudPlaceholder)
+                Button { actionNotice = app.reveal(node) } label: {
+                    Label("Finder", systemImage: "folder").frame(maxWidth: .infinity)
+                }
+                .disabled(!hasGrant(node))
+            }
+            .controlSize(.large)
             if let m = actionNotice {
                 Text(m).font(SDTheme.Font.secondary).foregroundStyle(.orange)
             }
-            Button(app.isQueued(node.id) ? "Remove from Review" : "Add to Review") {
-                app.toggleReview(node, source: "Inspector")
-            }
-            .buttonStyle(.borderedProminent)
-            .frame(maxWidth: .infinity)
-            .disabled(!app.canReview(node))
             if node.isCloudPlaceholder {
                 Text("This item is not downloaded. Manage it in Finder.")
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
