@@ -58,10 +58,47 @@ nonisolated struct ScanNode: Identifiable, Hashable, Codable {
     /// Measured on-disk allocation, independent of logical size (nil = not measured).
     var allocatedBytes: Int64? = nil
     /// Hard-link count at scan time (1 = ordinary file). Trashing one link
-    /// of many frees no unique storage — review copy says so.
+    /// of many frees no unique storage.
     var hardLinkCount: Int = 1
+    /// Owned by root or another user. Finder can move such items with an
+    /// administrator password; a sandboxed app cannot.
+    var ownedByOthers: Bool = false
 
     var isUnknownDate: Bool { modified == nil }
+
+    init(id: String, name: String, path: String, isFolder: Bool, isPackage: Bool = false,
+         category: SDFileCategory, logicalBytes: Int64, modified: Date?, childCount: Int,
+         children: [ScanNode]? = nil, isCloudPlaceholder: Bool = false, isUnreadable: Bool = false,
+         fsFileNumber: UInt64? = nil, fsVolumeNumber: UInt64? = nil, allocatedBytes: Int64? = nil,
+         hardLinkCount: Int = 1, ownedByOthers: Bool = false) {
+        self.id = id; self.name = name; self.path = path; self.isFolder = isFolder; self.isPackage = isPackage
+        self.category = category; self.logicalBytes = logicalBytes; self.modified = modified
+        self.childCount = childCount; self.children = children; self.isCloudPlaceholder = isCloudPlaceholder
+        self.isUnreadable = isUnreadable; self.fsFileNumber = fsFileNumber; self.fsVolumeNumber = fsVolumeNumber
+        self.allocatedBytes = allocatedBytes; self.hardLinkCount = hardLinkCount; self.ownedByOthers = ownedByOthers
+    }
+
+    /// Tolerant decoding so saved scans from earlier builds still load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        isFolder = try c.decode(Bool.self, forKey: .isFolder)
+        isPackage = try c.decodeIfPresent(Bool.self, forKey: .isPackage) ?? false
+        category = try c.decodeIfPresent(SDFileCategory.self, forKey: .category) ?? .other
+        logicalBytes = try c.decode(Int64.self, forKey: .logicalBytes)
+        modified = try c.decodeIfPresent(Date.self, forKey: .modified)
+        childCount = try c.decodeIfPresent(Int.self, forKey: .childCount) ?? 0
+        children = try c.decodeIfPresent([ScanNode].self, forKey: .children)
+        isCloudPlaceholder = try c.decodeIfPresent(Bool.self, forKey: .isCloudPlaceholder) ?? false
+        isUnreadable = try c.decodeIfPresent(Bool.self, forKey: .isUnreadable) ?? false
+        fsFileNumber = try c.decodeIfPresent(UInt64.self, forKey: .fsFileNumber)
+        fsVolumeNumber = try c.decodeIfPresent(UInt64.self, forKey: .fsVolumeNumber)
+        allocatedBytes = try c.decodeIfPresent(Int64.self, forKey: .allocatedBytes)
+        hardLinkCount = try c.decodeIfPresent(Int.self, forKey: .hardLinkCount) ?? 1
+        ownedByOthers = try c.decodeIfPresent(Bool.self, forKey: .ownedByOthers) ?? false
+    }
 
     func share(of total: Int64) -> Double {
         guard total > 0 else { return 0 }
@@ -313,8 +350,16 @@ final class AppState {
         }
     }
 
+    /// Why an item cannot be staged, or nil when it can.
+    func reviewBlocker(_ node: ScanNode) -> String? {
+        if node.isCloudPlaceholder { return "Not downloaded. Manage it in Finder." }
+        if node.ownedByOthers { return "Owned by another user or the system. Finder can move it with an administrator password." }
+        if node.isUnreadable { return "Could not be read." }
+        return nil
+    }
+
     func canReview(_ node: ScanNode) -> Bool {
-        guard hasRealData, !node.isCloudPlaceholder, !node.isUnreadable, !cleanupRunning else { return false }
+        guard hasRealData, reviewBlocker(node) == nil, !cleanupRunning else { return false }
         guard let known = nodeIndex[node.id] else { return false }
         return known.path == node.path
     }

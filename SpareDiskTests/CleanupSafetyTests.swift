@@ -83,3 +83,30 @@ struct CleanupSafetyTests {
         #expect(!ScanEngine.cloudPlaceholder(status: nil))
     }
 }
+
+/// Revalidation must accept an item exactly as the scanner recorded it,
+/// otherwise nothing can ever be moved to the Trash.
+struct CleanupRevalidationTests {
+    @Test func freshlyScannedItemsPassRevalidation() async throws {
+        // Not the temp directory: it resolves under /private, which the
+        // cleanup policy refuses on purpose.
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let root = base.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Bundle.app")
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 2048).write(to: folder.appendingPathComponent("Contents/bin"))
+        try Data(repeating: 2, count: 4096).write(to: root.appendingPathComponent("loose.bin"))
+
+        let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
+        let bundle = try #require(result.topNodes.first(where: { $0.name == "Bundle.app" }))
+        let loose = try #require(result.topNodes.first(where: { $0.name == "loose.bin" }))
+
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: bundle.path), node: bundle, scope: root) == .ok)
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: loose.path), node: loose, scope: root) == .ok)
+
+        // A real change is still caught.
+        try Data(repeating: 3, count: 10).write(to: root.appendingPathComponent("loose.bin"))
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: loose.path), node: loose, scope: root) != .ok)
+    }
+}

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Review queue (§F10): a proposal, never auto-executes. Revalidates before Trash.
@@ -18,7 +19,7 @@ struct ReviewQueueView: View {
                 if app.cleanupRunning {
                     Button("Cancel") { app.cancelCleanup() }
                 } else if !app.reviewItems.isEmpty {
-                    Button("Move \(planCount) Items to Trash…") { confirming = true }
+                    Button(planCount == 1 ? "Move 1 Item to Trash…" : "Move \(planCount) Items to Trash…") { confirming = true }
                         .buttonStyle(.borderedProminent)
                         .help("Each item is checked again before it moves")
                 }
@@ -72,6 +73,10 @@ struct ReviewQueueView: View {
                                     }
                                     Spacer()
                                     MonospaceBytes(bytes: r.bytes)
+                                    Button("Show in Finder") {
+                                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: r.path)])
+                                    }
+                                    .controlSize(.small)
                                 }
                                 .frame(minHeight: 44)
                             }
@@ -109,7 +114,7 @@ struct ReviewQueueView: View {
         }
         .sheet(isPresented: $confirming) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Move \(planCount) items to Trash?").font(.system(size: 17, weight: .semibold))
+                Text(planCount == 1 ? "Move 1 item to the Trash?" : "Move \(planCount) items to the Trash?").font(.system(size: 17, weight: .semibold))
                 Text("About \(SDFormat.bytesString(total)). Items that changed since review, or that are protected, are skipped and reported. Space is freed when you empty the Trash.")
                     .font(SDTheme.Font.body).foregroundStyle(.secondary)
                 HStack {

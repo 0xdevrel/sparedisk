@@ -117,9 +117,9 @@ nonisolated enum CleanupService {
 
     // MARK: - Revalidation (identity, scope, type, metadata — just before op)
 
-    private enum Revalidation { case ok, blocked(String), changed(String), gone }
+    enum Revalidation: Equatable { case ok, blocked(String), changed(String), gone }
 
-    private static func revalidate(url: URL, node: ScanNode, scope: URL) -> Revalidation {
+    static func revalidate(url: URL, node: ScanNode, scope: URL) -> Revalidation {
         // Resolve symlinked ancestors on both sides: lexical normalization
         // alone does not establish containment (P1).
         let target = url.standardizedFileURL.resolvingSymlinksInPath()

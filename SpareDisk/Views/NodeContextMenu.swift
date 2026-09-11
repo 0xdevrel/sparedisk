@@ -13,6 +13,9 @@ struct NodeContextMenu: View {
             app.toggleReview(node, source: source)
         }
         .disabled(!app.canReview(node))
+        if let why = app.reviewBlocker(node) {
+            Text(why)
+        }
         Divider()
         Button("Quick Look") { app.preview(node) }
             .disabled(app.scopeForNode(node) == nil || node.isCloudPlaceholder)

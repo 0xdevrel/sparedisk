@@ -80,6 +80,9 @@ struct InspectorView: View {
             if node.isCloudPlaceholder {
                 GridRow { Text("Status").foregroundStyle(.secondary); Text("Not downloaded") }
             }
+            if node.ownedByOthers {
+                GridRow { Text("Owner").foregroundStyle(.secondary); Text("Another user or the system") }
+            }
             if node.isUnreadable {
                 GridRow { Text("Status").foregroundStyle(.secondary); Text("Could not be read") }
             }
@@ -153,9 +156,8 @@ struct InspectorView: View {
             if let m = actionNotice {
                 Text(m).font(SDTheme.Font.secondary).foregroundStyle(.orange)
             }
-            if node.isCloudPlaceholder {
-                Text("This item is not downloaded. Manage it in Finder.")
-                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            if let why = app.reviewBlocker(node) {
+                Text(why).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
             } else if !app.hasRealData {
                 Text("Sample data. Add a location to work with your own files.")
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)

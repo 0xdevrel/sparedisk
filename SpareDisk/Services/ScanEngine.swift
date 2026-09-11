@@ -144,6 +144,7 @@ nonisolated enum ScanEngine {
         var isPkg = false
         var cat: SDFileCategory = .other
         var dataless = false
+        var ownedByOthers = false
     }
 
     fileprivate struct FileIdentity: Hashable {
@@ -181,7 +182,10 @@ nonisolated enum ScanEngine {
         var ino: UInt64
         var dev: UInt64
         var dataless: Bool
+        var uid: uid_t
     }
+
+    static let currentUID = getuid()
 
     static func lstat(path: String) -> Stat? {
         var st = Darwin.stat()
@@ -193,7 +197,7 @@ nonisolated enum ScanEngine {
                     size: Int64(st.st_size), allocated: Int64(st.st_blocks) * 512,
                     modified: st.st_mtimespec.tv_sec == 0 ? nil : mtime,
                     links: Int(st.st_nlink), ino: UInt64(st.st_ino), dev: UInt64(UInt32(bitPattern: st.st_dev)),
-                    dataless: isDataless(flags: st.st_flags))
+                    dataless: isDataless(flags: st.st_flags), uid: st.st_uid)
     }
 
     /// Not-downloaded placeholder for iCloud Drive and File Provider volumes
@@ -453,7 +457,8 @@ nonisolated enum ScanEngine {
                             logicalBytes: st.size, modified: st.modified, childCount: 0,
                             isCloudPlaceholder: st.dataless,
                             fsFileNumber: st.ino, fsVolumeNumber: st.dev,
-                            allocatedBytes: st.allocated, hardLinkCount: st.links)
+                            allocatedBytes: st.allocated, hardLinkCount: st.links,
+                            ownedByOthers: st.uid != currentUID)
         if wantsLargest {
             insertSorted(&state.largest, node) { $0.logicalBytes > $1.logicalBytes }
             if state.largest.count > candidateCap { state.largest.removeLast() }
@@ -519,7 +524,8 @@ nonisolated enum ScanEngine {
                  logicalBytes: e.bytes, modified: e.own,
                  childCount: max(e.count - 1, e.isDir ? 1 : 0),
                  isCloudPlaceholder: e.dataless,
-                 allocatedBytes: e.alloc)
+                 allocatedBytes: e.alloc,
+                 ownedByOthers: e.ownedByOthers)
     }
 
     // MARK: - Identity for cleanup revalidation
@@ -597,7 +603,7 @@ extension ScanEngine.Agg {
         bytes += o.bytes
         alloc += o.alloc
         count += o.count
-        if o.own != nil { own = o.own; isDir = o.isDir; isPkg = o.isPkg; cat = o.cat; dataless = o.dataless }
+        if o.own != nil { own = o.own; isDir = o.isDir; isPkg = o.isPkg; cat = o.cat; dataless = o.dataless; ownedByOthers = o.ownedByOthers }
     }
 
     fileprivate mutating func fold(bytes: Int64, alloc: Int64, own: ScanEngine.Stat?, name: String, ext: String, isPkg: Bool) {
@@ -610,6 +616,7 @@ extension ScanEngine.Agg {
             cat = ScanEngine.category(name: name, ext: ext, isDir: own.isDir)
             self.own = own.modified
             dataless = own.dataless
+            ownedByOthers = own.uid != ScanEngine.currentUID
         }
     }
 }
