@@ -1,128 +1,159 @@
 import AppKit
 import SwiftUI
 
-// Inspector order (§F05): name/type → path → size → dates/counts → access/risk → preview/reveal → staging.
+// Inspector order (§F05): name and kind, path, size, dates and counts,
+// largest children for folders, actions, staging.
 struct InspectorView: View {
     @Environment(AppState.self) private var app
     @State private var actionNotice: String?
 
     private var node: ScanNode? { app.inspectedNode }
 
-    /// Grant-backed availability: bare path checks fail after relaunch when
-    /// no scope is held, so availability means "a grant covers this node" (P1).
-    private func hasGrant(_ node: ScanNode) -> Bool {
-        app.scopeForNode(node) != nil
-    }
+    private func hasGrant(_ node: ScanNode) -> Bool { app.scopeForNode(node) != nil }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SDTheme.Space.sm) {
-                if let node {
-                    // 1. Name + type
-                    HStack(spacing: 10) {
-                        FileTypeIcon(node: node, size: 32)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(node.name).font(.system(size: 16, weight: .semibold)).lineLimit(2)
-                            HStack(spacing: 6) {
-                                CategoryDot(category: node.category)
-                                Text(node.category.label).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    // 2. Path
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Path").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                        Text(node.path).font(.system(size: 12.5)).foregroundStyle(.primary)
-                            .lineLimit(3).truncationMode(.middle).textSelection(.enabled)
-                    }
-
+            if let node {
+                VStack(alignment: .leading, spacing: SDTheme.Space.sm) {
+                    identity(node)
                     Divider()
-
-                    // 3. Size — logical + on-disk kept independent
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(SDFormat.bytesString(node.logicalBytes)).font(SDTheme.Font.figureSmall)
-                        Text(SDFormat.exactBytes(node.logicalBytes)).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                        Text(app.hasRealData ? "Logical size · scanned contents" : "Sample data · not your files").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                        if let alloc = node.allocatedBytes {
-                            Text("On disk \(SDFormat.bytesString(alloc)) (measured)").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                        } else {
-                            Text("On-disk allocation: Not measured").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                        }
-                        if node.hardLinkCount > 1 {
-                            Text("\(node.hardLinkCount) hard links share this content — removing one copy frees no unique storage.").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                        }
-                    }
-
+                    size(node)
                     Divider()
-
-                    // 4. Dates / counts
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-                        GridRow { Text("Modified").foregroundStyle(.secondary); Text(SDFormat.date(node.modified)) }
-                        GridRow { Text("Items").foregroundStyle(.secondary); Text(node.isFolder ? "\(node.childCount) items (recursive)" : "1 file") }
-                        GridRow { Text("Access").foregroundStyle(.secondary); Text(node.isUnreadable ? "Could not read" : node.isCloudPlaceholder ? "Cloud-only item" : "Checked again before cleanup").foregroundStyle(.primary) }
+                    facts(node)
+                    if node.isFolder, !node.isPackage {
+                        Divider()
+                        children(node)
                     }
-                    .font(SDTheme.Font.secondary)
+                    Divider()
+                    actions(node)
+                }
+                .padding(SDTheme.Space.md)
+            } else {
+                Text("No Selection").font(SDTheme.Font.body).foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, minHeight: 200)
+            }
+        }
+        .accessibilityLabel("Inspector")
+    }
 
-                    // 5. Risk context
-                    HStack(spacing: 8) {
-                        Image(systemName: "info.circle").foregroundStyle(Color.accentColor)
-                        Text(node.isFolder ? "Review contents before moving. New files need renewed review." : "Moves to Trash only after you confirm in Review.")
+    private func identity(_ node: ScanNode) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                FileTypeIcon(node: node, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(node.name).font(.system(size: 15, weight: .semibold)).lineLimit(3)
+                    HStack(spacing: 5) {
+                        CategoryDot(category: node.category)
+                        Text(node.isPackage ? "Package" : node.isFolder ? "Folder" : node.category.label)
                             .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                     }
-                    .padding(8)
-                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-
-                    // 6. Preview / reveal
-                    if node.isCloudPlaceholder {
-                        HStack(spacing: 8) {
-                            Image(systemName: "icloud.and.arrow.down").foregroundStyle(.secondary)
-                            Text("Cloud-only item. Preview would download it — use Finder to choose download vs. remove.")
-                                .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                        }
-                        .padding(8)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    }
-                    HStack(spacing: 8) {
-                        Button("Quick Look") {
-                            actionNotice = app.preview(node)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!hasGrant(node) || node.isCloudPlaceholder)
-                        .help("Preview selected file")
-                        Button("Reveal in Finder") {
-                            actionNotice = app.reveal(node)
-                        }.buttonStyle(.bordered).disabled(!hasGrant(node))
-                    }
-                    .font(SDTheme.Font.secondary)
-
-                    Button("Copy Path") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(node.path, forType: .string)
-                    }.buttonStyle(.link).font(SDTheme.Font.secondary)
-
-                    if let m = actionNotice {
-                        Text(m).font(SDTheme.Font.secondary).foregroundStyle(.orange)
-                    }
-
-                    Divider()
-
-                    // 7. Staging
-                    Button(app.isQueued(node.id) ? "Remove from Review" : "Add to Review") {
-                        app.toggleReview(node, source: "Inspector")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .frame(maxWidth: .infinity)
-                    .disabled(!app.canReview(node))
-
-                    Text("Quick Look opens on explicit request only. Cloud-only items show a download warning first.")
-                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                } else {
-                    Text("Select an item to inspect").foregroundStyle(.secondary)
                 }
             }
-            .padding(SDTheme.Space.md)
+            Text(node.path).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                .lineLimit(3).truncationMode(.middle).textSelection(.enabled)
         }
-        .accessibilityLabel("Selection inspector")
+    }
+
+    private func size(_ node: ScanNode) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(SDFormat.bytesString(node.logicalBytes)).font(SDTheme.Font.figureSmall)
+            Text(SDFormat.exactBytes(node.logicalBytes)).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            if let alloc = node.allocatedBytes, alloc != node.logicalBytes {
+                Text("\(SDFormat.bytesString(alloc)) on disk").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
+            if node.hardLinkCount > 1 {
+                Text("One of \(node.hardLinkCount) hard links. Trashing this one frees nothing.")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func facts(_ node: ScanNode) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 5) {
+            GridRow {
+                Text("Modified").foregroundStyle(.secondary)
+                Text(node.modified.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Unknown")
+            }
+            if node.isFolder {
+                GridRow { Text("Contains").foregroundStyle(.secondary); Text("\(node.childCount.formatted()) items") }
+            }
+            if node.isCloudPlaceholder {
+                GridRow { Text("Status").foregroundStyle(.secondary); Text("Not downloaded") }
+            }
+            if node.isUnreadable {
+                GridRow { Text("Status").foregroundStyle(.secondary); Text("Could not be read") }
+            }
+        }
+        .font(SDTheme.Font.secondary)
+    }
+
+    private func children(_ node: ScanNode) -> some View {
+        let kids = (app.children(of: node) ?? []).sorted { $0.logicalBytes > $1.logicalBytes }
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Largest inside").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                Spacer()
+                if kids.isEmpty {
+                    if app.drillScanningID == node.id {
+                        ProgressView().controlSize(.mini)
+                    } else if hasGrant(node), !node.isCloudPlaceholder {
+                        Button("Read") { app.ensureChildren(node) }.buttonStyle(.link).font(SDTheme.Font.secondary)
+                    }
+                }
+            }
+            ForEach(kids.prefix(10)) { kid in
+                Button {
+                    app.inspectedNodeID = kid.id
+                } label: {
+                    HStack(spacing: 6) {
+                        FileTypeIcon(node: kid, size: 14)
+                        Text(kid.name).font(SDTheme.Font.secondary).lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(SDFormat.bytesString(kid.logicalBytes))
+                            .font(SDTheme.Font.secondary.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            if kids.count > 10 {
+                Button("Show all \(kids.count)") {
+                    app.viewMode = .list
+                    app.expandedIDs.insert(node.id)
+                    if case .location = app.selection {} else if let id = app.activeLocation?.id {
+                        app.selection = .location(id)
+                    }
+                }
+                .buttonStyle(.link).font(SDTheme.Font.secondary)
+            }
+        }
+    }
+
+    private func actions(_ node: ScanNode) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button("Quick Look") { actionNotice = app.preview(node) }
+                    .disabled(!hasGrant(node) || node.isCloudPlaceholder)
+                Button("Show in Finder") { actionNotice = app.reveal(node) }
+                    .disabled(!hasGrant(node))
+            }
+            .controlSize(.small)
+            if let m = actionNotice {
+                Text(m).font(SDTheme.Font.secondary).foregroundStyle(.orange)
+            }
+            Button(app.isQueued(node.id) ? "Remove from Review" : "Add to Review") {
+                app.toggleReview(node, source: "Inspector")
+            }
+            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity)
+            .disabled(!app.canReview(node))
+            if node.isCloudPlaceholder {
+                Text("This item is not downloaded. Manage it in Finder.")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            } else if !app.hasRealData {
+                Text("Sample data. Add a location to work with your own files.")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
+        }
     }
 }

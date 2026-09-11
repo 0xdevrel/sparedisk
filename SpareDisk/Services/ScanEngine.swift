@@ -18,6 +18,7 @@ struct ScanProgress: Hashable {
     /// Top-level aggregates so far, largest first. Sizes only grow.
     var partialTop: [ScanNode] = []
     var partialBytes: Int64 = 0
+    var partialAllocated: Int64 = 0
 }
 
 struct ScanIssue: Hashable, Identifiable, Codable {
@@ -29,7 +30,12 @@ struct ScanIssue: Hashable, Identifiable, Codable {
 struct ScanResult: Hashable, Codable {
     var locationID: String
     var rootName: String
+    /// Logical bytes of unique content.
     var totalBytes: Int64
+    /// Bytes actually allocated on disk. Not-downloaded cloud files, sparse
+    /// files and clones make this smaller than the logical total, which is
+    /// why a folder can "contain" more than its volume holds.
+    var totalAllocated: Int64 = 0
     var itemCount: Int
     var topNodes: [ScanNode]
     var largestFiles: [ScanNode] = []
@@ -40,6 +46,32 @@ struct ScanResult: Hashable, Codable {
     var wasCancelled: Bool
 
     var elapsed: TimeInterval { finishedAt.timeIntervalSince(startedAt) }
+
+    init(locationID: String, rootName: String, totalBytes: Int64, totalAllocated: Int64 = 0, itemCount: Int,
+         topNodes: [ScanNode], largestFiles: [ScanNode] = [], oldestFiles: [ScanNode] = [], issues: [ScanIssue],
+         startedAt: Date, finishedAt: Date, wasCancelled: Bool) {
+        self.locationID = locationID; self.rootName = rootName; self.totalBytes = totalBytes
+        self.totalAllocated = totalAllocated; self.itemCount = itemCount; self.topNodes = topNodes
+        self.largestFiles = largestFiles; self.oldestFiles = oldestFiles; self.issues = issues
+        self.startedAt = startedAt; self.finishedAt = finishedAt; self.wasCancelled = wasCancelled
+    }
+
+    /// Tolerant decoding so saved scans from earlier builds still load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        locationID = try c.decode(String.self, forKey: .locationID)
+        rootName = try c.decode(String.self, forKey: .rootName)
+        totalBytes = try c.decode(Int64.self, forKey: .totalBytes)
+        totalAllocated = try c.decodeIfPresent(Int64.self, forKey: .totalAllocated) ?? 0
+        itemCount = try c.decode(Int.self, forKey: .itemCount)
+        topNodes = try c.decode([ScanNode].self, forKey: .topNodes)
+        largestFiles = try c.decodeIfPresent([ScanNode].self, forKey: .largestFiles) ?? []
+        oldestFiles = try c.decodeIfPresent([ScanNode].self, forKey: .oldestFiles) ?? []
+        issues = try c.decodeIfPresent([ScanIssue].self, forKey: .issues) ?? []
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        finishedAt = try c.decode(Date.self, forKey: .finishedAt)
+        wasCancelled = try c.decodeIfPresent(Bool.self, forKey: .wasCancelled) ?? false
+    }
 }
 
 enum ScanEngine {
@@ -90,14 +122,16 @@ enum ScanEngine {
         let rootPath = root.standardizedFileURL.path
         walk(enumerator: enumerator, rootPath: rootPath, locationID: locationID, started: started,
              state: &state, shouldStop: { Task.isCancelled },
-             onBatch: { count, name, partial, bytes in
+             onBatch: { count, name, partial, bytes, alloc in
             // Called on the worker thread; the handler must be thread-safe
             // (the app yields into an AsyncStream here, no UI work).
             onProgress(ScanProgress(itemsFound: count, elapsed: Date().timeIntervalSince(started),
-                                    currentPath: name, partialTop: partial, partialBytes: bytes))
+                                    currentPath: name, partialTop: partial, partialBytes: bytes,
+                                    partialAllocated: alloc))
         })
 
         return ScanResult(locationID: locationID, rootName: rootName, totalBytes: state.total,
+                          totalAllocated: state.totalAlloc,
                           itemCount: state.count,
                           topNodes: buildTree(state: state, locationID: locationID, rootPath: rootPath),
                           largestFiles: state.largest, oldestFiles: state.oldest,
@@ -134,6 +168,7 @@ enum ScanEngine {
 
     private struct WalkState {
         var total: Int64 = 0
+        var totalAlloc: Int64 = 0
         var count = 0
         /// Top-level aggregates by first component.
         var agg: [String: Agg] = [:]
@@ -190,7 +225,7 @@ enum ScanEngine {
                              started: Date,
                              state: inout WalkState,
                              shouldStop: () -> Bool,
-                             onBatch: (Int, String, [ScanNode], Int64) -> Void) {
+                             onBatch: (Int, String, [ScanNode], Int64, Int64) -> Void) {
         while let url = enumerator.nextObject() as? URL {
             if shouldStop() { break }
             let rel = url.relativePath
@@ -234,6 +269,7 @@ enum ScanEngine {
                     .fold(bytes: bytes, alloc: alloc, own: depth == 1 ? st : nil, name: name, ext: ext, isPkg: isPkg)
             }
             state.total += bytes
+            state.totalAlloc += alloc
             state.count += 1
 
             // File-level candidates: never package/library/git interiors.
@@ -264,7 +300,8 @@ enum ScanEngine {
             if state.count % batchSize == 0
                 || (state.count % 256 == 0 && Date().timeIntervalSince(state.lastEmit) > batchInterval) {
                 state.lastEmit = Date()
-                onBatch(state.count, name, partialTop(state: state, locationID: locationID, rootPath: rootPath), state.total)
+                onBatch(state.count, name, partialTop(state: state, locationID: locationID, rootPath: rootPath),
+                        state.total, state.totalAlloc)
             }
         }
     }

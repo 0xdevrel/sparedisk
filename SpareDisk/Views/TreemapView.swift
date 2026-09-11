@@ -113,7 +113,7 @@ struct TreemapView: View {
 
     /// Cells smaller than this many square points cannot show a size label,
     /// so they are folded into one "Other" cell that does.
-    private static let minCellArea: CGFloat = 40 * 22
+    private static let minCellArea: CGFloat = 56 * 24
     private static let maxCells = 80
 
     private func aggregated(_ items: [ScanNode], in rect: CGRect) -> [Entry] {
@@ -176,7 +176,7 @@ struct TreemapView: View {
     private func plan(for rect: CGRect) -> LabelPlan {
         if rect.width >= 72 && rect.height >= 34 { return .nameAndSize }
         if rect.width >= 72 && rect.height >= 17 { return .nameOnly }
-        if rect.width >= 40 && rect.height >= 15 { return .sizeOnly }
+        if rect.width >= 52 && rect.height >= 15 { return .sizeOnly }
         return .none
     }
 

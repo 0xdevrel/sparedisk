@@ -16,7 +16,7 @@ extension AppState {
         guard !plan.isEmpty else {
             cleanupResults = keeperSkips
             lastCleanupSummary = keeperSkips.isEmpty ? nil
-                : "Nothing staged — every queued item is a protected last copy."
+                : "Nothing moved. Every queued item is the last copy of its contents."
             return
         }
 

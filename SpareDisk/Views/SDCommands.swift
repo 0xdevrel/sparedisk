@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AppCommands: Commands {
@@ -22,6 +23,28 @@ struct AppCommands: Commands {
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(app.activeLocation == nil || app.isScanning)
         }
+        CommandMenu("Item") {
+            Button(app.inspectedNode.map { app.isQueued($0.id) } == true ? "Remove from Review" : "Add to Review") {
+                if let n = app.inspectedNode { app.toggleReview(n, source: "Menu") }
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(app.inspectedNode.map { app.canReview($0) } != true)
+            Divider()
+            Button("Quick Look") { if let n = app.inspectedNode { app.preview(n) } }
+                .keyboardShortcut("y", modifiers: .command)
+                .disabled(app.inspectedNode.map { app.scopeForNode($0) == nil || $0.isCloudPlaceholder } ?? true)
+            Button("Reveal in Finder") { if let n = app.inspectedNode { app.reveal(n) } }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+                .disabled(app.inspectedNode.map { app.scopeForNode($0) == nil } ?? true)
+            Button("Copy Path") {
+                if let n = app.inspectedNode {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(n.path, forType: .string)
+                }
+            }
+            .keyboardShortcut("c", modifiers: [.command, .option])
+            .disabled(app.inspectedNode == nil)
+        }
     }
 }
 
@@ -37,8 +60,8 @@ struct SettingsView: View {
                 }
             }
             Section("Privacy") {
-                Text("Your files are analyzed on this Mac. SpareDisk does not upload file names, paths, or contents.")
-                Text("Saved folder permissions stay in the app's local storage. Forget a location from its sidebar menu to remove the saved permission.")
+                Text("Analysis happens on this Mac. File names, paths, and contents are never uploaded.")
+                Text("Use Forget Location in the sidebar to remove a saved folder permission and its saved scan.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -57,11 +80,11 @@ struct AboutView: View {
             Image("SpareDiskLogo").resizable().scaledToFit().frame(width: 96, height: 96)
                 .accessibilityHidden(true)
             Text("SpareDisk").font(.system(size: 26, weight: .semibold))
-            Text("Understand your storage. Make room for what matters.")
+            Text("See where your space goes.")
                 .font(SDTheme.Font.body).multilineTextAlignment(.center)
             Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")")
                 .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-            Text("Analyzes the folders you choose. Files move to Trash only after you review and confirm.")
+            Text("Analyzes the folders you choose. Files move to the Trash only after you confirm.")
                 .font(SDTheme.Font.secondary).foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).padding(.top, 8)
         }
@@ -74,13 +97,13 @@ struct ScanIssuesView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Scan details").font(SDTheme.Font.screenTitle)
+            Text("Unreadable Folders").font(SDTheme.Font.screenTitle)
             if let error = app.scanError { Text(error).font(SDTheme.Font.body) }
             let issues = app.activeScan?.issues ?? []
             if issues.isEmpty {
-                Text("No additional file-access details are available.").foregroundStyle(.secondary)
+                Text("Every folder in this location was read.").foregroundStyle(.secondary)
             } else {
-                Text("Some items couldn't be read. Their contents may be missing from the scan totals.")
+                Text("These folders could not be read, so their contents are missing from the totals.")
                     .font(SDTheme.Font.body)
                 List(issues) { issue in
                     VStack(alignment: .leading, spacing: 4) {

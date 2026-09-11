@@ -16,7 +16,7 @@ extension AppState {
 
         let files = scans.values.flatMap(\.largestFiles)
         guard !files.isEmpty else {
-            duplicateNotice = "Scan a location first — duplicates are compared among scanned large files."
+            duplicateNotice = "Scan a location first. Duplicates are found among its large files."
             return
         }
 

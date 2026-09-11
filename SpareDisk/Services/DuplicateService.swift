@@ -49,7 +49,7 @@ enum DuplicateService {
             if f.isFolder { continue }
             if f.logicalBytes < minBytes { continue }
             if f.isCloudPlaceholder {
-                skipped.append(skip(f, reason: "Cloud placeholder — never downloaded to compare."))
+                skipped.append(skip(f, reason: "Not downloaded, so it was not compared."))
                 continue
             }
             eligible.append(f)
@@ -76,7 +76,7 @@ enum DuplicateService {
                 if Task.isCancelled { break }
                 switch verifyMetadata(f) {
                 case .ok: fresh.append(f)
-                case .changed: skipped.append(skip(f, reason: "Changed during comparison — excluded."))
+                case .changed: skipped.append(skip(f, reason: "Changed during the comparison."))
                 case .gone: skipped.append(skip(f, reason: "Disappeared during comparison."))
                 }
             }
@@ -89,7 +89,7 @@ enum DuplicateService {
                     let data = try readPrefix(url: URL(fileURLWithPath: f.path), maxBytes: sampleBytes)
                     sampleBuckets[shaHex(SHA256.hash(data: data)), default: []].append(f)
                 } catch {
-                    skipped.append(skip(f, reason: "Couldn't be read — excluded."))
+                    skipped.append(skip(f, reason: "Could not be read."))
                 }
             }
             for (_, contenders) in sampleBuckets where contenders.count > 1 {
@@ -101,7 +101,7 @@ enum DuplicateService {
                     do {
                         digestBuckets[try shaFile(url: URL(fileURLWithPath: f.path)), default: []].append(f)
                     } catch {
-                        skipped.append(skip(f, reason: "Couldn't be read — excluded."))
+                        skipped.append(skip(f, reason: "Could not be read."))
                     }
                 }
                 for (digest, hashed) in digestBuckets where hashed.count > 1 {
@@ -117,7 +117,7 @@ enum DuplicateService {
                                 verified.append(f)
                             }
                         } catch {
-                            skipped.append(skip(f, reason: "Couldn't be confirmed — excluded."))
+                            skipped.append(skip(f, reason: "Could not be confirmed."))
                         }
                     }
                     // 8. Final recheck: changed files leave the verified group.
@@ -151,7 +151,7 @@ enum DuplicateService {
                 let k = kept.remove(at: idx)
                 protected.append(CleanupResult(
                     id: k.id, name: k.node.name, path: k.node.path, bytes: k.node.logicalBytes,
-                    outcome: .blocked("Last remaining copy of identical contents — kept back. Choose a different keeper to stage this one.")))
+                    outcome: .blocked("Kept as the last copy of these contents. Choose a different copy to keep if you want this one removed.")))
             }
         }
         return (kept, protected)

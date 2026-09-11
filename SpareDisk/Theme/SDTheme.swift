@@ -21,27 +21,43 @@ enum SDTheme {
         static let figureSmall = SwiftUI.Font.system(size: 20, weight: .semibold, design: .rounded).monospacedDigit()
     }
 
-    // Up to six chart categories + neutral Unknown/Other. Stable identity across views.
-    static func color(for category: SDFileCategory) -> Color {
+    // Up to six chart categories plus neutral Other/Unknown. Stable identity
+    // across views. Dark mode lifts the tints so orange reads as orange on a
+    // dark surface instead of brown.
+    private static func rgb(_ category: SDFileCategory) -> (Double, Double, Double) {
         switch category {
-        case .documents: return Color(red: 0.23, green: 0.47, blue: 0.85)
-        case .media: return Color(red: 0.55, green: 0.36, blue: 0.78)
-        case .archives: return Color(red: 0.85, green: 0.55, blue: 0.18)
-        case .developer: return Color(red: 0.20, green: 0.60, blue: 0.52)
-        case .apps: return Color(red: 0.83, green: 0.33, blue: 0.42)
-        case .system: return Color(red: 0.45, green: 0.50, blue: 0.57)
-        case .other: return Color(red: 0.55, green: 0.58, blue: 0.62)
-        case .unknown: return Color(red: 0.68, green: 0.69, blue: 0.71)
+        case .documents: (0.23, 0.47, 0.85)
+        case .media: (0.55, 0.36, 0.78)
+        case .archives: (0.93, 0.60, 0.22)
+        case .developer: (0.20, 0.60, 0.52)
+        case .apps: (0.83, 0.33, 0.42)
+        case .system: (0.45, 0.50, 0.57)
+        case .other: (0.55, 0.58, 0.62)
+        case .unknown: (0.68, 0.69, 0.71)
         }
+    }
+
+    static func color(for category: SDFileCategory) -> Color {
+        let (r, g, b) = rgb(category)
+        return Color(red: r, green: g, blue: b)
+    }
+
+    /// Category color adjusted for the appearance: lifted toward white in
+    /// dark mode so saturated fills stay recognizable.
+    static func color(for category: SDFileCategory, scheme: ColorScheme) -> Color {
+        let (r, g, b) = rgb(category)
+        guard scheme == .dark else { return Color(red: r, green: g, blue: b) }
+        let lift = 0.22
+        return Color(red: r + (1 - r) * lift, green: g + (1 - g) * lift, blue: b + (1 - b) * lift)
     }
 
     /// Flat map fill. Light mode wants a pastel over white; dark mode wants
     /// a deeper tint so text stays legible and orange does not turn brown.
     static func mapFill(for category: SDFileCategory, scheme: ColorScheme, emphasized: Bool) -> Color {
-        let base = color(for: category)
+        let base = color(for: category, scheme: scheme)
         switch scheme {
-        case .dark: return base.opacity(emphasized ? 0.72 : 0.5)
-        default: return base.opacity(emphasized ? 0.5 : 0.3)
+        case .dark: return base.opacity(emphasized ? 0.9 : 0.72)
+        default: return base.opacity(emphasized ? 0.55 : 0.34)
         }
     }
 
@@ -108,11 +124,11 @@ struct IssueBanner: View {
                 .foregroundStyle(.orange)
             Text(text)
                 .font(SDTheme.Font.secondary)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
             Spacer()
-            Button("Review") { app.showScanIssues = true }.buttonStyle(.link).font(SDTheme.Font.secondary)
+            Button("Details") { app.showScanIssues = true }.buttonStyle(.link).font(SDTheme.Font.secondary)
         }
         .padding(8)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.orange.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
     }
 }

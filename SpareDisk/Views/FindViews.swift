@@ -2,16 +2,13 @@ import SwiftUI
 
 struct LargeFilesView: View {
     @Environment(AppState.self) private var app
-    @State private var thresholdMB = "500"
+    @AppStorage("largeFilesMinMB") private var thresholdMB = 500
 
     private var useReal: Bool { app.hasRealData }
     private var combined: [ScanNode] {
         app.scans.values.flatMap(\.largestFiles).sorted { $0.logicalBytes > $1.logicalBytes }
     }
-    private var floor: Int64 {
-        guard let value = Double(thresholdMB), value.isFinite, value >= 0, value < Double(Int64.max) / 1_000_000 else { return Int64.max }
-        return Int64(value * 1_000_000)
-    }
+    private var floor: Int64 { Int64(max(0, thresholdMB)) * 1_000_000 }
     private var shown: [ScanNode] {
         let list = useReal ? combined : MockData.largeFiles
         return list.filter { $0.logicalBytes >= floor && (app.searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(app.searchText)) }.prefix(200).map { $0 }
@@ -19,12 +16,19 @@ struct LargeFilesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(title: "Large Files",
-                   sub: useReal ? "Retained ranking · top files seen during \(app.scans.count) scanned location\(app.scans.count == 1 ? "" : "s") · packages count as units in Browse"
-                                : "Sample · descending by size · scope Home folder")
-            filterBar(threshold: $thresholdMB, extra: "Minimum size (MB)")
+            filterBar {
+                Picker("Larger than", selection: $thresholdMB) {
+                    Text("100 MB").tag(100)
+                    Text("500 MB").tag(500)
+                    Text("1 GB").tag(1000)
+                    Text("5 GB").tag(5000)
+                }
+                .frame(width: 190)
+                Text(useReal ? "The 200 largest files from each scanned location" : "Sample data")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
             if useReal && shown.isEmpty {
-                emptyHint("No files above this size in the scanned locations.")
+                emptyHint("No files this large in the scanned locations.")
             } else {
                 List(selection: Binding(get: { app.inspectedNodeID }, set: { app.inspectedNodeID = $0 })) {
                     ForEach(shown) { node in
@@ -35,16 +39,17 @@ struct LargeFilesView: View {
                                 Text(node.path).font(SDTheme.Font.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             }
                             if node.isCloudPlaceholder {
-                                Image(systemName: "icloud").foregroundStyle(.secondary).help("Cloud placeholder — excluded from bulk removal")
+                                Image(systemName: "icloud").foregroundStyle(.secondary).help("Not downloaded")
+                            }
+                            if app.isQueued(node.id) {
+                                Image(systemName: "tray.full").foregroundStyle(Color.accentColor).help("In Review")
                             }
                             Spacer()
                             MonospaceBytes(bytes: node.logicalBytes)
-                            Button(app.isQueued(node.id) ? "Queued" : "Add to Review") {
-                                app.toggleReview(node, source: "Large Files")
-                                app.inspectedNodeID = node.id
-                            }.buttonStyle(.link).disabled(!app.canReview(node))
                         }
                         .frame(minHeight: SDTheme.rowHeight)
+                        .contentShape(Rectangle())
+                        .contextMenu { NodeContextMenu(node: node, source: "Large Files") }
                         .tag(node.id)
                     }
                 }.listStyle(.inset)
@@ -55,11 +60,11 @@ struct LargeFilesView: View {
 
 struct OlderFilesView: View {
     @Environment(AppState.self) private var app
-    @State private var monthsBack = "12"
+    @AppStorage("olderFilesMonths") private var monthsBack = 12
 
     private var useReal: Bool { app.hasRealData }
     private var cutoff: Date {
-        let m = min(1200, max(0, Int(monthsBack) ?? 12))
+        let m = min(1200, max(0, monthsBack))
         return Calendar.current.date(byAdding: .month, value: -m, to: Date()) ?? .distantPast
     }
     private var shown: [ScanNode] {
@@ -71,8 +76,17 @@ struct OlderFilesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(title: "Older Files", sub: useReal ? "Retained ranking · by modification date · review before removing" : "Sample data · not your files")
-            filterBar(threshold: $monthsBack, extra: "Not modified in (months)")
+            filterBar {
+                Picker("Not modified in", selection: $monthsBack) {
+                    Text("6 months").tag(6)
+                    Text("1 year").tag(12)
+                    Text("2 years").tag(24)
+                    Text("5 years").tag(60)
+                }
+                .frame(width: 210)
+                Text(useReal ? "The 200 oldest files from each scanned location, by modification date" : "Sample data")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
             if useReal && shown.isEmpty {
                 emptyHint("Nothing this old in the scanned locations.")
             } else {
@@ -82,51 +96,36 @@ struct OlderFilesView: View {
                             FileTypeIcon(node: node, size: 24)
                             VStack(alignment: .leading) {
                                 Text(node.name).font(SDTheme.Font.body)
-                                Text("Modified \(SDFormat.date(node.modified)) · \(SDFormat.bytesString(node.logicalBytes))")
+                                Text("Modified \(SDFormat.date(node.modified)), \(SDFormat.bytesString(node.logicalBytes))")
                                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                             }
+                            if app.isQueued(node.id) {
+                                Image(systemName: "tray.full").foregroundStyle(Color.accentColor).help("In Review")
+                            }
                             Spacer()
-                            Button(app.isQueued(node.id) ? "Queued" : "Add to Review") {
-                                app.toggleReview(node, source: "Older Files")
-                                app.inspectedNodeID = node.id
-                            }.buttonStyle(.link).disabled(!app.canReview(node))
                         }
                         .frame(minHeight: SDTheme.rowHeight)
+                        .contentShape(Rectangle())
+                        .contextMenu { NodeContextMenu(node: node, source: "Older Files") }
                         .tag(node.id)
                     }
                 }.listStyle(.inset)
             }
-            Text(useReal
-                 ? "Age uses modification date only. Files without dates aren't ranked — they appear in Browse with an Unknown label."
-                 : "Age uses modification date only. A directory's date is not the age of its descendants.")
-                .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                .padding(SDTheme.Space.sm)
         }
     }
 }
 
-private func header(title: String, sub: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(.system(size: 20, weight: .semibold))
-        Text(sub).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-    }
-    .padding(.horizontal, SDTheme.Space.md).padding(.vertical, SDTheme.Space.sm)
-}
-
-private func filterBar(threshold: Binding<String>, extra: String) -> some View {
-    HStack(spacing: 8) {
-        Text(extra).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-        TextField("Threshold", text: threshold).textFieldStyle(.roundedBorder).frame(width: 160)
+private func filterBar<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    HStack(spacing: 10) {
+        content()
         Spacer()
-        Text("Up to 200 retained results").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
     }
-    .padding(.horizontal, SDTheme.Space.md).padding(.bottom, SDTheme.Space.xs)
+    .padding(.horizontal, SDTheme.Space.md).padding(.vertical, SDTheme.Space.xs)
 }
 
 private func emptyHint(_ text: String) -> some View {
     VStack(spacing: 8) {
-        Text("No files match these filters.").font(SDTheme.Font.body)
-        Text(text).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+        Text(text).font(SDTheme.Font.body).foregroundStyle(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
 }

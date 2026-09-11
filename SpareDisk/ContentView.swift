@@ -16,6 +16,17 @@ struct ContentView: View {
         }
     }
 
+    private var title: String {
+        switch app.selection {
+        case .overview: "Overview"
+        case .location: app.activeLocation?.name ?? "Location"
+        case .largeFiles: "Large Files"
+        case .olderFiles: "Older Files"
+        case .duplicates: "Duplicates"
+        case .review: "Review Cleanup"
+        }
+    }
+
     var body: some View {
         @Bindable var app = app
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -32,7 +43,7 @@ struct ContentView: View {
             InspectorView()
                 .inspectorColumnWidth(min: 280, ideal: 300, max: 340)
         }
-        .navigationTitle("SpareDisk")
+        .navigationTitle(title)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button("Back", systemImage: "chevron.left", action: app.goBack)
@@ -47,13 +58,13 @@ struct ContentView: View {
                         Label("Map", systemImage: "square.grid.2x2").tag(SDViewMode.map)
                     }
                     .pickerStyle(.segmented).frame(width: 150)
-                    .help("Choose how to view this location")
+                    .help("View as list or map")
                 }
             }
             ToolbarItem(placement: .primaryAction) {
-                Button("Choose a Folder", systemImage: "folder.badge.plus") {
+                Button("Add Location", systemImage: "folder.badge.plus") {
                     Task { await app.addLocationFlow() }
-                }.help("Choose a folder (⌘O)")
+                }.help("Add a folder to analyze (⌘O)")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("Toggle Inspector", systemImage: "sidebar.trailing") {

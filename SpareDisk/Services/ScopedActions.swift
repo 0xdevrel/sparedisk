@@ -47,6 +47,6 @@ extension AppState {
     }
 
     private var unreachableMessage: String {
-        "That file isn't reachable right now — it may have moved, the volume may be offline, or its access expired. Choose the folder again if it persists."
+        "That item is not reachable. It may have moved, its volume may be offline, or access may have expired. Add the folder again if this persists."
     }
 }

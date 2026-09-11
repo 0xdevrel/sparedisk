@@ -18,7 +18,7 @@ struct DuplicatesView: View {
             if !app.hasRealData {
                 VStack(spacing: 8) {
                     Text("Scan a location first.").font(SDTheme.Font.body)
-                    Text("Duplicates are compared among scanned large files — never uploaded anywhere.")
+                    Text("Duplicates are found among the scanned large files. Nothing is uploaded.")
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                     Button("Choose a Folder…") { Task { await app.addLocationFlow() } }
                         .buttonStyle(.link)
@@ -36,7 +36,7 @@ struct DuplicatesView: View {
                         app.duplicateTask = Task { await app.findDuplicates() }
                     }
                     .buttonStyle(.borderedProminent).controlSize(.small)
-                    .help("Reads file contents to compare — extra IO, stays on this Mac")
+                    .help("Reads file contents to compare them. Everything stays on this Mac.")
                     if !app.duplicateGroups.isEmpty {
                         Text("\(app.duplicateGroups.count) groups · \(SDFormat.bytesString(redundantTotal)) logical redundancy")
                             .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
@@ -95,7 +95,7 @@ struct DuplicatesView: View {
                 }
                 .listStyle(.inset)
             }
-            Text("Redundancy is logical bytes — clones may share blocks, so Trash may free less. Content equality doesn't mean the files mean the same thing to their apps.")
+            Text("Redundancy counts logical bytes. Cloned files can share blocks, so the Trash may free less. Identical contents can still mean different things to their apps.")
                 .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 .padding(SDTheme.Space.sm)
             }
@@ -105,7 +105,7 @@ struct DuplicatesView: View {
     // MARK: - Derived
 
     private var scopeLine: String {
-        "Among retained large files (≥1 MB) across \(app.scans.count) scanned location\(app.scans.count == 1 ? "" : "s") — not an exhaustive whole-disk search"
+        "Compared among the largest files of \(app.scans.count) scanned location\(app.scans.count == 1 ? "" : "s"), 1 MB and up"
     }
 
     private var progressLine: String {

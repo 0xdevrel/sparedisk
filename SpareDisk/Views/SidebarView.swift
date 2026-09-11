@@ -8,7 +8,7 @@ struct SidebarView: View {
         @Bindable var app = app
         List(selection: $app.selection) {
             Section("Storage") {
-                Label("Overview", systemImage: "gauge.with.dots.needle.67percent")
+                Label("Overview", systemImage: "internaldrive")
                     .tag(SDSidebarSelection.overview)
                 DisclosureGroup(isExpanded: $locationsExpanded) {
                     if app.locations.isEmpty {
@@ -77,18 +77,6 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack(spacing: 8) {
-                Image("SpareDiskLogo").resizable().scaledToFit().frame(width: 36, height: 36)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("SpareDisk").font(.system(size: 15, weight: .semibold))
-                    Text("Storage, understood.").font(.system(size: 12)).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }.padding(.horizontal, 14).padding(.vertical, 14)
-        }
-        .navigationTitle("SpareDisk")
         .task { app.restoreStoredLocations() }
     }
 }

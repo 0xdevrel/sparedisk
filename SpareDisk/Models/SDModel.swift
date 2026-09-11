@@ -126,6 +126,10 @@ enum SDViewMode: String, CaseIterable {
     case map = "Map"
 }
 
+enum SDSortField: String, CaseIterable {
+    case name, size, modified
+}
+
 @Observable
 final class AppState {
     var selection: SDSidebarSelection = .overview {
@@ -164,13 +168,56 @@ final class AppState {
         selection = next
         traversingHistory = false
     }
-    var viewMode: SDViewMode = .list
+    var viewMode: SDViewMode = SDViewMode(rawValue: UserDefaults.standard.string(forKey: "viewMode") ?? "") ?? .list {
+        didSet { UserDefaults.standard.set(viewMode.rawValue, forKey: "viewMode") }
+    }
+    var sortField: SDSortField = SDSortField(rawValue: UserDefaults.standard.string(forKey: "sortField") ?? "") ?? .size {
+        didSet { UserDefaults.standard.set(sortField.rawValue, forKey: "sortField") }
+    }
+    var sortAscending: Bool = UserDefaults.standard.object(forKey: "sortAscending") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(sortAscending, forKey: "sortAscending") }
+    }
     var searchText = ""
     var inspectedNodeID: String? {
         didSet { if inspectedNodeID != nil { showInspector = true } }
     }
     var reviewItems: [ReviewItem] = []
-    var showInspector = false
+    var showInspector: Bool = UserDefaults.standard.object(forKey: "showInspector") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(showInspector, forKey: "showInspector") }
+    }
+
+    /// Toggle sort on a column: same column flips direction, new column
+    /// starts with its natural order (names ascending, sizes descending).
+    func toggleSort(_ field: SDSortField) {
+        if sortField == field {
+            sortAscending.toggle()
+        } else {
+            sortField = field
+            sortAscending = field == .name
+        }
+    }
+
+    func sorted(_ nodes: [ScanNode]) -> [ScanNode] {
+        nodes.sorted { a, b in
+            let less: Bool
+            switch sortField {
+            case .name: less = a.name.localizedStandardCompare(b.name) == .orderedAscending
+            case .size: less = a.logicalBytes < b.logicalBytes
+            case .modified: less = (a.modified ?? .distantPast) < (b.modified ?? .distantPast)
+            }
+            return sortAscending ? less : !less
+        }
+    }
+
+    /// Every retained node inside a location whose name matches, for search
+    /// across the whole retained tree rather than the top level only.
+    func searchNodes(in locationID: String, matching text: String) -> [ScanNode] {
+        let prefix = locationID
+        return nodeIndex.values.filter { n in
+            (n.id.hasPrefix(prefix + "/") || n.id.hasPrefix(prefix + "#"))
+                && n.name.localizedCaseInsensitiveContains(text)
+        }
+    }
     var breadcrumb: [ScanNode] = []
     /// Map drill-down trail (root = current list). Empty means top level.
     var mapTrail: [ScanNode] = []

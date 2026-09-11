@@ -130,7 +130,7 @@ enum CleanupService {
             return .blocked("Outside the authorized location. Choose the folder again.")
         }
         if target.path == root.path {
-            return .blocked("The location itself can't be trashed — pick items inside it.")
+            return .blocked("The location itself cannot be moved. Choose items inside it.")
         }
         for prefix in blockedPrefixes where target.path == prefix || isWithin(target.path, root: prefix) {
             return .blocked("Protected system location. SpareDisk doesn't clean system data.")
@@ -139,7 +139,7 @@ enum CleanupService {
             return .blocked("Backup storage. SpareDisk never touches backups.")
         }
         if managedExtensions.contains(target.pathExtension.lowercased()) {
-            return .blocked("Managed by its app — open that app to manage this data.")
+            return .blocked("Managed by another app. Open that app to remove it.")
         }
 
         let vals: URLResourceValues
@@ -154,16 +154,16 @@ enum CleanupService {
         // Fail closed on links: the scanner never queues symlinks, so one here
         // means substitution since review — never trash through it (P1).
         if vals.isSymbolicLink == true {
-            return .blocked("Became a link since review — refusing. Remove it in Finder if intended.")
+            return .blocked("Became a link after review, so it was left alone. Remove it in Finder if intended.")
         }
 
         if vals.isUbiquitousItem == true {
-            return .blocked("Cloud placeholder — use Finder to choose delete vs. remove download.")
+            return .blocked("Not downloaded. Use Finder to delete it or remove the download.")
         }
 
         let isDir = vals.isDirectory ?? false
         if isDir != node.isFolder {
-            return .changed("Changed type since review. Removed from this batch — review it again.")
+            return .changed("Changed type after review. Review it again.")
         }
         if node.isFolder {
             // `modified` is the directory's own mtime (scanner invariant, P1):
@@ -172,18 +172,18 @@ enum CleanupService {
                 return .changed("This folder changed after you added it. Review its updated contents.")
             }
             if let hit = firstManagedDescendant(in: target) {
-                return .blocked("Contains managed data (\(hit)) — open its app to manage it.")
+                return .blocked("Contains \(hit), which is managed by another app.")
             }
         } else {
             let (fnum, vnum) = ScanEngine.identityNumbers(for: target)
             if !identityMatches(node: node, fileNumber: fnum, volumeNumber: vnum) {
-                return .changed("Replaced since review — same name, different file. Removed from this batch.")
+                return .changed("Replaced after review by a different file with the same name.")
             }
             let sizeChanged = Int64(vals.fileSize ?? 0) != node.logicalBytes
             let dateChanged = (node.modified != nil && vals.contentModificationDate != nil
                                && node.modified != vals.contentModificationDate)
             if sizeChanged || dateChanged {
-                return .changed("Changed since review. Removed from this batch — review it again.")
+                return .changed("Changed after review. Review it again.")
             }
         }
         return .ok

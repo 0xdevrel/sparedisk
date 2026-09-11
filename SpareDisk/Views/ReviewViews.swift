@@ -15,7 +15,7 @@ struct ReviewQueueView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Review Cleanup").font(.system(size: 20, weight: .semibold))
-                    Text(app.reviewItems.isEmpty ? "Nothing staged. Add files from Browse or Find." : "\(planCount) items · \(SDFormat.bytesString(total)) selected (overlap counted once; estimate, not guaranteed recovery)")
+                    Text(app.reviewItems.isEmpty ? "Nothing staged yet." : "\(planCount) items, \(SDFormat.bytesString(total)). Items inside a queued folder are counted once.")
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -26,7 +26,7 @@ struct ReviewQueueView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(.red)
                         .disabled(app.reviewItems.isEmpty)
-                        .help("Confirm Move to Trash — revalidates each item")
+                        .help("Each item is checked again before it moves")
                 }
             }
             .padding(SDTheme.Space.md)
@@ -37,7 +37,7 @@ struct ReviewQueueView: View {
                     ProgressView()
                     Text("Moving to Trash… \(app.cleanupCurrent ?? "")")
                         .font(SDTheme.Font.body)
-                    Text("Revalidating each item. You can cancel between items — finished moves stay in Trash, the rest stay queued.")
+                    Text("Each item is checked again first. Cancel stops between items; finished moves stay in the Trash.")
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -45,7 +45,7 @@ struct ReviewQueueView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.largeTitle).foregroundStyle(.secondary)
                     Text("No files staged for cleanup.").font(SDTheme.Font.body)
-                    Text("Select → Add to Review → Inspect queue → Confirm Move to Trash").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                    Text("Select an item and choose Add to Review. Nothing moves until you confirm here.").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -54,7 +54,7 @@ struct ReviewQueueView: View {
                         Section {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(summary).font(SDTheme.Font.body)
-                                Text("Trash still occupies space until you empty it in Finder. SpareDisk never empties your whole Trash.")
+                                Text("Space is freed when you empty the Trash in Finder.")
                                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                                 HStack(spacing: 8) {
                                     Button("Show Trash") { app.showTrash() }.buttonStyle(.bordered).controlSize(.small)
@@ -93,7 +93,7 @@ struct ReviewQueueView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(item.node.name).font(SDTheme.Font.body)
                                         Text(item.node.path).font(SDTheme.Font.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                                        Text("\(item.source) · \(item.risk)").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                                        Text(item.risk).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     MonospaceBytes(bytes: item.node.logicalBytes)
@@ -107,7 +107,7 @@ struct ReviewQueueView: View {
                         Section {
                             HStack(spacing: 8) {
                                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                                Text("Queue clear — recover anything from the Trash in Finder.")
+                                Text("Queue is empty. Anything moved can be recovered from the Trash in Finder.")
                                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                             }
                         }
@@ -118,7 +118,7 @@ struct ReviewQueueView: View {
         .sheet(isPresented: $confirming) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Move \(planCount) items to Trash?").font(.system(size: 17, weight: .semibold))
-                Text("Estimated \(SDFormat.bytesString(total)). Each item is revalidated — changed, shared, or protected items are skipped and reported. Space stays occupied until you empty the Trash.")
+                Text("About \(SDFormat.bytesString(total)). Items that changed since review, or that are protected, are skipped and reported. Space is freed when you empty the Trash.")
                     .font(SDTheme.Font.body).foregroundStyle(.secondary)
                 HStack {
                     Spacer()
@@ -141,7 +141,7 @@ struct StatusBarView: View {
         HStack(spacing: 12) {
             if app.isScanning, let p = app.scanProgress {
                 ProgressView().controlSize(.small)
-                Text("Scanning · \(p.itemsFound.formatted()) items found · \(Int(p.elapsed))s elapsed")
+                Text("Scanning, \(p.itemsFound.formatted()) items so far")
                     .font(SDTheme.Font.secondary)
                 Button("Cancel") { app.cancelScan() }.buttonStyle(.link).font(SDTheme.Font.secondary)
             } else if app.cleanupRunning {
@@ -156,22 +156,20 @@ struct StatusBarView: View {
                     Text("Scan cancelled").font(SDTheme.Font.secondary)
                 } else if scan.issues.isEmpty {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("Scan complete · \(scan.itemCount.formatted()) items · \(SDFormat.bytesString(scan.totalBytes))").font(SDTheme.Font.secondary)
+                    Text("\(scan.itemCount.formatted()) items, \(SDFormat.bytesString(scan.totalBytes))").font(SDTheme.Font.secondary)
                 } else {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text("Scan finished · \(scan.issues.count) folders couldn't be read").font(SDTheme.Font.secondary)
+                    Text("\(scan.itemCount.formatted()) items, \(SDFormat.bytesString(scan.totalBytes)). \(scan.issues.count) folders could not be read.").font(SDTheme.Font.secondary)
                 }
             } else {
                 Image(systemName: "info.circle").foregroundStyle(.secondary)
-                Text(app.hasRealData ? "Ready to scan · choose a location and select Rescan" : "Sample data · choose a folder to analyze").font(SDTheme.Font.secondary)
+                Text(app.hasRealData ? "Not scanned yet" : "Sample data").font(SDTheme.Font.secondary)
             }
             Spacer()
             if !app.reviewPlan.isEmpty {
-                Button("Review \(app.reviewPlan.count) items · \(SDFormat.bytesString(app.reviewPlanBytes))") {
+                Button("Review \(app.reviewPlan.count) items, \(SDFormat.bytesString(app.reviewPlanBytes))") {
                     app.selection = .review
                 }.buttonStyle(.link).font(SDTheme.Font.secondary)
-            } else if !app.isScanning && !app.cleanupRunning {
-                Text("Idle").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, SDTheme.Space.md).padding(.vertical, 6)

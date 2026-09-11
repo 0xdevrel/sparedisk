@@ -30,6 +30,7 @@ struct SpareDiskTests {
     }
 
     @Test func inspectorRequiresSelectionAndOpensOnSelection() {
+        UserDefaults.standard.removeObject(forKey: "showInspector")
         let app = AppState()
         #expect(app.inspectedNode == nil)
         #expect(!app.showInspector)
