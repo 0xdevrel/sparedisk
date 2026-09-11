@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - Categories (mutually exclusive for totals, §F04)
 
-enum SDFileCategory: String, CaseIterable, Identifiable, Hashable, Codable {
+nonisolated enum SDFileCategory: String, CaseIterable, Identifiable, Hashable, Codable {
     case documents, media, archives, developer, apps, system
     case other, unknown
 
@@ -38,7 +38,7 @@ enum SDFileCategory: String, CaseIterable, Identifiable, Hashable, Codable {
 
 // MARK: - Nodes
 
-struct ScanNode: Identifiable, Hashable, Codable {
+nonisolated struct ScanNode: Identifiable, Hashable, Codable {
     let id: String
     var name: String
     var path: String
@@ -71,7 +71,7 @@ struct ScanNode: Identifiable, Hashable, Codable {
 
 // MARK: - Locations
 
-struct SDLocation: Identifiable, Hashable {
+nonisolated struct SDLocation: Identifiable, Hashable {
     enum Access: Hashable {
         case available, partiallyAccessible(String), reconnectRequired, unavailable, notGranted
         var label: String {
@@ -102,7 +102,7 @@ struct SDLocation: Identifiable, Hashable {
 
 // MARK: - Review
 
-struct ReviewItem: Identifiable, Hashable {
+nonisolated struct ReviewItem: Identifiable, Hashable {
     let id: String
     var node: ScanNode
     var source: String
@@ -348,7 +348,7 @@ final class AppState {
 
 // MARK: - Formatting
 
-enum SDFormat {
+nonisolated enum SDFormat {
     static let bytes: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.allowedUnits = [.useGB, .useMB, .useKB]

@@ -4,12 +4,12 @@ import Foundation
 // Bounded squarified treemap layout (Bruls–Huizing–van Wijk, simplified).
 // Pure geometry: deterministic input order, clamped non-negative rects, zero
 // weights skipped. No view code, no filesystem — unit-tested.
-struct TreemapFrame: Hashable {
+nonisolated struct TreemapFrame: Hashable {
     let id: String
     var rect: CGRect
 }
 
-enum TreemapLayout {
+nonisolated enum TreemapLayout {
     /// Lay out `(id, weight)` pairs inside `rect`. Weights are area shares.
     static func squarify(_ entries: [(id: String, weight: CGFloat)], in rect: CGRect) -> [TreemapFrame] {
         let items = entries

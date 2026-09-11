@@ -130,25 +130,24 @@ extension AppState {
             }
             let accessing = scope.startAccessingSecurityScopedResource()
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-            let (stream, continuation) = AsyncStream<ScanProgress>.makeStream()
             let worker = Task.detached(priority: .userInitiated) {
                 // Namespaced under the folder path: ids can never collide
-                // with siblings elsewhere in the tree (P2 identity note).
-                let result = await ScanEngine.scan(locationID: "\(locID)#\(node.path)",
-                                                   rootName: node.name, root: nodeURL) { p in
-                    continuation.yield(p)
+                // with siblings elsewhere in the tree.
+                await ScanEngine.scan(locationID: "\(locID)#\(node.path)",
+                                      rootName: node.name, root: nodeURL) { p in
+                    Task { @MainActor in
+                        guard gen == self.drillGeneration else { return }
+                        self.drillProgress = p
+                    }
                 }
-                continuation.finish()
-                await MainActor.run { self.applyDrill(result, parentID: drillID, gen: gen) }
             }
-            continuation.onTermination = { _ in worker.cancel() }
-            for await p in stream {
-                guard gen == self.drillGeneration else { break }
-                if Task.isCancelled { break }
-                self.drillProgress = p
+            let result = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
             }
-            await worker.value
             guard gen == self.drillGeneration else { return }
+            self.applyDrill(result, parentID: drillID, gen: gen)
             self.drillScanningID = nil
             self.drillProgress = nil
         }
@@ -203,33 +202,29 @@ extension AppState {
         scanProgress = ScanProgress(itemsFound: 0, elapsed: 0, currentPath: "")
         scanTask = Task {
             // Hold the grant for the whole batch; released only after the
-            // worker has terminated (see `await worker.value` below).
+            // worker has terminated.
             let accessing = url.startAccessingSecurityScopedResource()
             defer {
                 if accessing { url.stopAccessingSecurityScopedResource() }
             }
             let name = self.locations.first(where: { $0.id == locationID })?.name ?? url.lastPathComponent
-            // Enumeration runs off the main thread (§9.4); progress streams back.
-            // Cancellation flows: consumer break -> stream termination ->
-            // worker cancel -> engine observes Task.isCancelled.
-            let (stream, continuation) = AsyncStream<ScanProgress>.makeStream()
+            // Enumeration runs off the main thread; each progress report hops
+            // to the main actor and is dropped if a newer scan has started.
             let worker = Task.detached(priority: .userInitiated) {
-                let result = await ScanEngine.scan(locationID: locationID, rootName: name, root: url) { p in
-                    continuation.yield(p)
+                await ScanEngine.scan(locationID: locationID, rootName: name, root: url) { p in
+                    Task { @MainActor in
+                        guard gen == self.scanGeneration else { return }
+                        self.scanProgress = p
+                    }
                 }
-                continuation.finish()
-                await MainActor.run { self.applyScan(result, locationID: locationID, gen: gen) }
             }
-            continuation.onTermination = { _ in worker.cancel() }
-            for await p in stream {
-                guard gen == self.scanGeneration else { break }
-                if Task.isCancelled { break }
-                self.scanProgress = p
+            let result = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
             }
-            // Await the worker BEFORE releasing the grant and clearing state:
-            // no scope use-after-release, no newer-progress wipe (P1).
-            await worker.value
             guard gen == self.scanGeneration else { return }
+            self.applyScan(result, locationID: locationID, gen: gen)
             self.scanningLocationID = nil
             self.scanProgress = nil
         }

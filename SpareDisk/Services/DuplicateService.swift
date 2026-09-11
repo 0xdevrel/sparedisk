@@ -6,7 +6,7 @@ import Foundation
 // Result is "identical file contents", not universal equivalence: metadata,
 // resource forks, and application meaning can still differ. Hashes never
 // leave the Mac. Cloud placeholders are never hydrated to compare.
-struct DuplicateGroup: Identifiable, Hashable {
+nonisolated struct DuplicateGroup: Identifiable, Hashable {
     /// "algorithm:digest" — stable identity for keeper choice.
     let id: String
     var digestHex: String
@@ -17,20 +17,20 @@ struct DuplicateGroup: Identifiable, Hashable {
     var redundantLogicalBytes: Int64 { bytesPerFile * Int64(max(0, files.count - 1)) }
 }
 
-struct DuplicateSkip: Identifiable, Hashable {
+nonisolated struct DuplicateSkip: Identifiable, Hashable {
     let id: String
     var name: String
     var path: String
     var reason: String
 }
 
-struct DuplicateProgress: Hashable {
+nonisolated struct DuplicateProgress: Hashable {
     var checked: Int
     var total: Int
     var current: String
 }
 
-enum DuplicateService {
+nonisolated enum DuplicateService {
     static let algorithmVersion = "sha256-v1"
     /// Comparison floor: below this, hashing costs more attention than it saves.
     static let minBytes: Int64 = 1_000_000

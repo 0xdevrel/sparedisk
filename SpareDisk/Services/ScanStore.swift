@@ -5,7 +5,7 @@ import Foundation
 // kept in the app container so a relaunch shows dated results instead of
 // "Not scanned yet". A saved scan is metadata only, never file contents, and
 // nothing is deleted from a saved path without a fresh revalidation.
-enum ScanStore {
+nonisolated enum ScanStore {
     private static var directory: URL? {
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         else { return nil }

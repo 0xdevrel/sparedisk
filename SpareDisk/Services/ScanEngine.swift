@@ -12,7 +12,7 @@ import Foundation
 // One lstat yields type, size, allocation, mtime, link count, inode,
 // device and the dataless flag, so nothing else is asked per item. The walk
 // runs one worker per core over a shared directory queue.
-struct ScanProgress: Hashable {
+nonisolated struct ScanProgress: Hashable {
     var itemsFound: Int
     var elapsed: TimeInterval
     var currentPath: String
@@ -22,13 +22,13 @@ struct ScanProgress: Hashable {
     var partialAllocated: Int64 = 0
 }
 
-struct ScanIssue: Hashable, Identifiable, Codable {
+nonisolated struct ScanIssue: Hashable, Identifiable, Codable {
     var id = UUID()
     var path: String
     var message: String
 }
 
-struct ScanResult: Hashable, Codable {
+nonisolated struct ScanResult: Hashable, Codable {
     var locationID: String
     var rootName: String
     /// Logical bytes of unique content.
@@ -75,7 +75,9 @@ struct ScanResult: Hashable, Codable {
     }
 }
 
-enum ScanEngine {
+/// Explicitly nonisolated: the app target defaults every type to the main
+/// actor, which would run the whole walk on the UI thread.
+nonisolated enum ScanEngine {
     static let batchSize = 2000
     /// Progress is also emitted on time so slow folders (network, cloud
     /// providers) keep the counter moving.

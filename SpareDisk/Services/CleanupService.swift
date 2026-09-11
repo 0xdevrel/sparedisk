@@ -6,7 +6,7 @@ import Foundation
 //
 // Fail-closed policy: anything the revalidation cannot positively confirm
 // (identity, scope, type, metadata) is refused with a reason — never trashed.
-enum CleanupOutcome: Hashable {
+nonisolated enum CleanupOutcome: Hashable {
     case moved(trashURL: URL)
     case skippedChanged(String)
     case blocked(String)
@@ -14,7 +14,7 @@ enum CleanupOutcome: Hashable {
     case missing
 }
 
-struct CleanupResult: Identifiable, Hashable {
+nonisolated struct CleanupResult: Identifiable, Hashable {
     let id: String
     var name: String
     var path: String
@@ -34,7 +34,7 @@ struct CleanupResult: Identifiable, Hashable {
     }
 }
 
-enum CleanupService {
+nonisolated enum CleanupService {
     /// Never trash these, even inside an authorized scope.
     private static let blockedPrefixes = [
         "/System", "/Library", "/private", "/bin", "/sbin",

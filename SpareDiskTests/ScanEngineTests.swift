@@ -82,4 +82,26 @@ struct ScanEngineTests {
         #expect(linked.hardLinkCount == 2)
         #expect(linked.allocatedBytes != nil)
     }
+
+    @Test func scanReportsProgressWithCounts() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for d in 0..<4 {
+            let dir = root.appendingPathComponent("d\(d)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            for f in 0..<200 {
+                try Data([UInt8(f & 0xff)]).write(to: dir.appendingPathComponent("f\(f).bin"))
+            }
+        }
+        let lock = NSLock()
+        var seen: [Int] = []
+        let result = await ScanEngine.scan(locationID: "t", rootName: "T", root: root) { p in
+            lock.lock(); seen.append(p.itemsFound); lock.unlock()
+        }
+        #expect(result.itemCount == 804)
+        #expect(!seen.isEmpty)
+        #expect(seen.contains { $0 > 0 })
+        #expect(seen.max()! <= 804)
+    }
 }
