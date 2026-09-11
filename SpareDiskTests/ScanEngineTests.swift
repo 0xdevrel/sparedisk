@@ -65,4 +65,21 @@ struct ScanEngineTests {
         #expect(result.topNodes.map(\.name) == ["two.txt", "one.txt"])
         #expect(result.totalBytes == 300)
     }
+
+    @Test func hardLinksCountOnceAndCarryLinkCount() async throws {
+        let root = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Second directory entry for one.txt: same content, new name.
+        try FileManager.default.linkItem(at: root.appendingPathComponent("alpha/one.txt"),
+                                         to: root.appendingPathComponent("alpha/one-link.txt"))
+
+        let result = await ScanEngine.scan(locationID: "t", rootName: "T", root: root) { _ in }
+        // 350 unique bytes, not 450: totals count content once, like du.
+        #expect(result.totalBytes == 350)
+        let names = result.largestFiles.map(\.name)
+        #expect(names.contains("one-link.txt"))
+        let linked = try #require(result.largestFiles.first(where: { $0.name == "one.txt" }))
+        #expect(linked.hardLinkCount == 2)
+        #expect(linked.allocatedBytes != nil)
+    }
 }

@@ -55,6 +55,11 @@ struct ScanNode: Identifiable, Hashable {
     /// For folders, `modified` carries the directory's own mtime, never a descendant summary.
     var fsFileNumber: UInt64? = nil
     var fsVolumeNumber: UInt64? = nil
+    /// Measured on-disk allocation, independent of logical size (nil = not measured).
+    var allocatedBytes: Int64? = nil
+    /// Hard-link count at scan time (1 = ordinary file). Trashing one link
+    /// of many frees no unique storage — review copy says so.
+    var hardLinkCount: Int = 1
 
     var isUnknownDate: Bool { modified == nil }
 
@@ -248,7 +253,9 @@ final class AppState {
                 node: node,
                 source: source,
                 reason: source,
-                risk: node.isFolder ? "Folder — review all contents before removal" : "File — moves to Trash on confirm"
+                risk: node.isFolder ? "Folder — review all contents before removal"
+                    : node.hardLinkCount > 1 ? "File with \(node.hardLinkCount) links — other links keep its contents after Trash"
+                    : "File — moves to Trash on confirm"
             ))
         }
     }

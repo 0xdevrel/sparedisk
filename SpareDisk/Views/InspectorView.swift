@@ -44,7 +44,14 @@ struct InspectorView: View {
                         Text(SDFormat.bytesString(node.logicalBytes)).font(SDTheme.Font.figureSmall)
                         Text(SDFormat.exactBytes(node.logicalBytes)).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                         Text(app.hasRealData ? "Logical size · scanned contents" : "Sample data · not your files").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                        Text("On-disk allocation: Not measured").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                        if let alloc = node.allocatedBytes {
+                            Text("On disk \(SDFormat.bytesString(alloc)) (measured)").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                        } else {
+                            Text("On-disk allocation: Not measured").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                        }
+                        if node.hardLinkCount > 1 {
+                            Text("\(node.hardLinkCount) hard links share this content — removing one copy frees no unique storage.").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                        }
                     }
 
                     Divider()

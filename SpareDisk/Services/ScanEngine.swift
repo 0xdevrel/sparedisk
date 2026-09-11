@@ -87,7 +87,8 @@ enum ScanEngine {
                                     path: root.appendingPathComponent(name).appendingPathComponent(second).path,
                                     isFolder: s.isDir, isPackage: s.isPkg, category: s.cat,
                                     logicalBytes: s.bytes, modified: s.own,
-                                    childCount: max(s.count - 1, s.isDir ? 1 : 0))
+                                    childCount: max(s.count - 1, s.isDir ? 1 : 0),
+                                    allocatedBytes: s.allocMeasured ? s.alloc : nil)
                 }
                 .sorted { $0.logicalBytes > $1.logicalBytes }
             return ScanNode(id: "\(locationID)/\(name)", name: name,
@@ -95,7 +96,8 @@ enum ScanEngine {
                             isFolder: e.isDir, isPackage: e.isPkg, category: e.cat,
                             logicalBytes: e.bytes, modified: e.own,
                             childCount: max(e.count - 1, e.isDir ? 1 : 0),
-                            children: children.isEmpty ? nil : children)
+                            children: children.isEmpty ? nil : children,
+                            allocatedBytes: e.allocMeasured ? e.alloc : nil)
         }.sorted { $0.logicalBytes > $1.logicalBytes }
 
         return ScanResult(locationID: locationID, rootName: rootName, totalBytes: state.total,
@@ -118,13 +120,21 @@ enum ScanEngine {
         var isDir = true
         var isPkg = false
         var cat: SDFileCategory = .other
+        var alloc: Int64 = 0
+        var allocMeasured = false
+    }
+
+    /// Stable (device, inode) identity for hard-link dedup.
+    private struct FileIdentity: Hashable {
+        var dev: UInt64
+        var ino: UInt64
     }
 
     /// Fold one visit into an aggregate. `own` is set only on the entry's
     /// own visit (P1: directory mtime is never a descendant summary).
     private static func accumulate(_ e: Agg, bytes: Int64, date: Date?,
                                    isOwnVisit: Bool, isDir: Bool, url: URL,
-                                   isPkg: Bool) -> Agg {
+                                   isPkg: Bool, allocated: Int64?) -> Agg {
         var e = e
         e.bytes += bytes
         e.count += 1
@@ -134,6 +144,10 @@ enum ScanEngine {
             e.isPkg = isPkg
             e.cat = category(for: url, isDir: isDir)
             e.own = date
+        }
+        if let a = allocated {
+            e.alloc += a
+            e.allocMeasured = true
         }
         return e
     }
@@ -149,6 +163,7 @@ enum ScanEngine {
         /// Deeper content rolls into these totals; individual deep files
         /// surface only via the largest/oldest rankings.
         var sub: [String: Agg] = [:]
+        var seenFiles = Set<FileIdentity>()
         var largest: [ScanNode] = []
         var smallestTracked: Int64 = 0
         var oldest: [ScanNode] = []
@@ -177,23 +192,47 @@ enum ScanEngine {
                 let isCloud = Self.cloudPlaceholder(status: vals.ubiquitousItemDownloadingStatus)
                 // Logical basis for v1 (allocated shown independently in inspector when available).
                 let bytes: Int64 = isDir ? 0 : Int64(vals.fileSize ?? 0) // folders aggregate from descendants
+                let allocated: Int64? = isDir ? nil : vals.totalFileAllocatedSize.map { Int64($0) }
+                // Stable identity + link count (one stat per file). Repeat
+                // sightings of a hard link contribute no bytes anywhere:
+                // totals count unique content, like du (P2 accounting).
+                var linkCount = 1
+                var identity: (file: UInt64?, volume: UInt64?) = (nil, nil)
+                var isDuplicateLink = false
+                if !isDir {
+                    let idn = fileIdentity(for: url)
+                    identity = (idn.file, idn.volume)
+                    linkCount = idn.links
+                    if linkCount > 1, let f = idn.file, let v = idn.volume {
+                        let key = FileIdentity(dev: v, ino: f)
+                        if state.seenFiles.contains(key) {
+                            isDuplicateLink = true
+                        } else {
+                            state.seenFiles.insert(key)
+                        }
+                    }
+                }
+                let countedBytes = isDuplicateLink ? 0 : bytes
+                let countedAlloc: Int64? = isDuplicateLink ? nil : allocated
                 let stdComps = url.standardizedFileURL.pathComponents
                 let relComps = Array(stdComps.dropFirst(rootComps.count))
                 let top = relComps.first ?? url.lastPathComponent
                 state.agg[top, default: Agg()] = accumulate(state.agg[top] ?? Agg(),
-                                                            bytes: bytes, date: vals.contentModificationDate,
+                                                            bytes: countedBytes, date: vals.contentModificationDate,
                                                             isOwnVisit: relComps.count <= 1,
                                                             isDir: isDir, url: url,
-                                                            isPkg: vals.isPackage ?? false)
+                                                            isPkg: vals.isPackage ?? false,
+                                                            allocated: countedAlloc)
                 if relComps.count >= 2 {
                     let key = relComps[0] + "/" + relComps[1]
                     state.sub[key, default: Agg()] = accumulate(state.sub[key] ?? Agg(),
-                                                               bytes: bytes, date: vals.contentModificationDate,
+                                                               bytes: countedBytes, date: vals.contentModificationDate,
                                                                isOwnVisit: relComps.count == 2,
                                                                isDir: isDir, url: url,
-                                                               isPkg: vals.isPackage ?? false)
+                                                               isPkg: vals.isPackage ?? false,
+                                                               allocated: countedAlloc)
                 }
-                state.total += bytes
+                state.total += countedBytes
                 state.count += 1
 
                 // File-level candidates (never package/library/git interiors).
@@ -204,9 +243,10 @@ enum ScanEngine {
                         && (node.modified! < state.newestTracked || state.oldest.count < candidateCap)
                     if wantsLargest || wantsOldest {
                         // Stamp stable identity once, only for retained candidates (P1).
-                        let (fnum, vnum) = identityNumbers(for: url)
-                        node.fsFileNumber = fnum
-                        node.fsVolumeNumber = vnum
+                        node.fsFileNumber = identity.file
+                        node.fsVolumeNumber = identity.volume
+                        node.hardLinkCount = linkCount
+                        node.allocatedBytes = allocated
                     }
                     if wantsLargest {
                         state.largest.append(node)
@@ -241,10 +281,20 @@ enum ScanEngine {
     /// Filesystem + volume numbers (ino/dev) for replacement detection at
     /// cleanup time. Metadata-only, follows no content.
     static func identityNumbers(for url: URL) -> (UInt64?, UInt64?) {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let file = (attrs[.systemFileNumber] as? NSNumber)?.uint64Value,
-              let vol = (attrs[.systemNumber] as? NSNumber)?.uint64Value else { return (nil, nil) }
-        return (file, vol)
+        let idn = fileIdentity(for: url)
+        return (idn.file, idn.volume)
+    }
+
+    /// One stat yielding identity triple. Unknown stays nil/1 — callers
+    /// fall back, never fabricate.
+    private static func fileIdentity(for url: URL) -> (file: UInt64?, volume: UInt64?, links: Int) {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+            return (nil, nil, 1)
+        }
+        let file = (attrs[.systemFileNumber] as? NSNumber)?.uint64Value
+        let vol = (attrs[.systemNumber] as? NSNumber)?.uint64Value
+        let links = (attrs[.referenceCount] as? NSNumber)?.intValue ?? 1
+        return (file, vol, max(1, links))
     }
 
     private static func candidate(locationID: String, url: URL, relComps: [String],
