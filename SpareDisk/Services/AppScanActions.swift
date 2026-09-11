@@ -30,24 +30,59 @@ extension AppState {
         rebuildIndex()
     }
 
+    /// Add one or more folders. The first scan starts at once; the rest
+    /// queue behind it. A first-ever location lands on Overview so the
+    /// storage picture builds in front of the user.
     @MainActor
-    func addLocationFlow() async {
+    func addLocationFlow(startingAt start: URL? = nil, message: String? = nil) async {
         scanError = nil
         notice = nil
         do {
-            let grant = try await LocationAccessService.pickFolder()
-            let loc = Self.describe(id: grant.id, url: grant.url, access: .available)
-            if !locations.contains(where: { $0.id == loc.id }) { locations.append(loc) }
-            activeLocationID = loc.id
-            selection = .location(loc.id)
-            startScan(locationID: loc.id, url: grant.url)
+            let grants = try await LocationAccessService.pickFolders(startingAt: start, message: message)
+            let wasEmpty = locations.isEmpty
+            for grant in grants {
+                let loc = Self.describe(id: grant.id, url: grant.url, access: .available)
+                if !locations.contains(where: { $0.id == loc.id }) { locations.append(loc) }
+            }
+            guard let first = grants.first else { return }
+            activeLocationID = first.id
+            selection = wasEmpty || grants.count > 1 ? .overview : .location(first.id)
+            scanQueue = grants.dropFirst().map(\.id)
+            startScan(locationID: first.id, url: first.url)
         } catch let e as LocationAccessError {
             switch e {
-            case .cancelled: break // return to usable overview, no error (§F01)
+            case .cancelled: break // return to a usable screen, no error (§F01)
             default: scanError = e.localizedDescription
             }
         } catch {
             scanError = error.localizedDescription
+        }
+    }
+
+    /// Home folder in one step: the picker opens inside it, so Analyze with
+    /// nothing selected grants the folder that covers Desktop, Documents,
+    /// Downloads and Library together.
+    @MainActor
+    func addHomeFolderFlow() async {
+        await addLocationFlow(startingAt: URL(fileURLWithPath: NSHomeDirectory()),
+                              message: "Click Analyze to add your home folder, or choose other folders.")
+    }
+
+    @MainActor
+    func addApplicationsFlow() async {
+        await addLocationFlow(startingAt: URL(fileURLWithPath: "/Applications"),
+                              message: "Click Analyze to add Applications, or choose other folders.")
+    }
+
+    /// Start the next queued location after a scan finishes.
+    @MainActor
+    private func startNextQueuedScan() {
+        while let next = scanQueue.first {
+            scanQueue.removeFirst()
+            if let (url, _) = try? LocationAccessService.resolve(id: next) {
+                startScan(locationID: next, url: url)
+                return
+            }
         }
     }
 
@@ -229,6 +264,7 @@ extension AppState {
             self.applyScan(result, locationID: locationID, gen: gen)
             self.scanningLocationID = nil
             self.scanProgress = nil
+            self.startNextQueuedScan()
         }
     }
 

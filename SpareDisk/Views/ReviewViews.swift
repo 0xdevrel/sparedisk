@@ -164,7 +164,7 @@ struct StatusBarView: View {
                 }
             } else {
                 Image(systemName: "info.circle").foregroundStyle(.secondary)
-                Text(app.hasRealData ? "Not scanned yet" : "Sample data").font(SDTheme.Font.secondary)
+                Text(app.hasRealData ? "Not scanned yet" : "No locations yet").font(SDTheme.Font.secondary)
             }
             Spacer()
             if !app.reviewPlan.isEmpty {

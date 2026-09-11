@@ -49,21 +49,30 @@ enum LocationAccessService {
 
     // MARK: - Open panel (explicit user choice, the only way in)
     @MainActor
-    static func pickFolder() async throws -> GrantedLocation {
+    /// One or more folders chosen by the user. `startingAt` opens the panel
+    /// inside that folder so the current folder itself is one click away.
+    static func pickFolders(startingAt start: URL? = nil, message: String? = nil) async throws -> [GrantedLocation] {
         let panel = NSOpenPanel()
-        panel.message = "Choose a folder to analyze. Files move only after you review and confirm."
+        panel.message = message ?? "Choose folders to analyze. Nothing moves until you review it and confirm."
         panel.prompt = "Analyze"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = false
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.treatsFilePackagesAsDirectories = false
+        panel.showsHiddenFiles = false
+        if let start { panel.directoryURL = start }
 
         let response = await panel.beginSheetModal(for: NSApp.keyWindow ?? NSApp.mainWindow ?? NSWindow())
-        guard response == .OK, let url = panel.url else {
+        guard response == .OK, !panel.urls.isEmpty else {
             throw LocationAccessError.cancelled
         }
-        return try persistGrant(for: url)
+        return try panel.urls.map { try persistGrant(for: $0) }
+    }
+
+    static func pickFolder() async throws -> GrantedLocation {
+        guard let first = try await pickFolders().first else { throw LocationAccessError.cancelled }
+        return first
     }
 
     // MARK: - Bookmark lifecycle

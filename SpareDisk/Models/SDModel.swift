@@ -280,6 +280,8 @@ final class AppState {
     var scanError: String?
     var notice: String?
     var scanTask: Task<Void, Never>?
+    /// Locations waiting to be scanned after the current one.
+    var scanQueue: [String] = []
     /// Monotonic run id: stale workers/progress never touch current state (P1).
     var scanGeneration = 0
     /// Focused drill-down scans: parent node id -> that folder's contents.

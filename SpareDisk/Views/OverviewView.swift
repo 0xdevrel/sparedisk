@@ -48,9 +48,17 @@ struct OverviewView: View {
             Text("Add a folder and SpareDisk maps what is inside it. Nothing moves until you review it and confirm.")
                 .font(SDTheme.Font.body).foregroundStyle(.secondary)
                 .frame(maxWidth: 480, alignment: .leading)
-            Button("Add Location…") { Task { await app.addLocationFlow() } }
-                .buttonStyle(.borderedProminent).controlSize(.large)
-                .keyboardShortcut("o", modifiers: .command)
+            HStack(spacing: 10) {
+                Button("Analyze Home Folder") { Task { await app.addHomeFolderFlow() } }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                Button("Analyze Applications") { Task { await app.addApplicationsFlow() } }
+                Button("Choose Folders…") { Task { await app.addLocationFlow() } }
+                    .keyboardShortcut("o", modifiers: .command)
+            }
+            .controlSize(.large)
+            Text("Your home folder covers Desktop, Documents, Downloads and Library in one step. macOS asks once per protected folder.")
+                .font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
         }
         .padding(.top, SDTheme.Space.lg)
     }
