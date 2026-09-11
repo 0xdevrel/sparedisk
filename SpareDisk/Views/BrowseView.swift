@@ -55,6 +55,20 @@ struct BrowseView: View {
                         .buttonStyle(.plain).foregroundStyle(.orange)
                         .help("Some folders could not be read")
                     }
+                    if let diff = app.changes(for: locationID), !searching {
+                        Button {
+                            app.showChanges = true
+                        } label: {
+                            Label(diff.bytesDelta == 0 ? "No change since last scan"
+                                  : "\(diff.bytesDelta > 0 ? "+" : "−")\(SDFormat.bytesString(abs(diff.bytesDelta))) since last scan",
+                                  systemImage: diff.bytesDelta > 0 ? "arrow.up.right" : diff.bytesDelta < 0 ? "arrow.down.right" : "equal")
+                        }
+                        .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                        .help("What changed since the previous scan")
+                        .sheet(isPresented: $app.showChanges) {
+                            ChangesView(locationName: location?.name ?? "", diff: diff)
+                        }
+                    }
                     if searching {
                         Text("\(nodes.count) matching, \(SDFormat.bytesString(nodes.reduce(0) { $0 + $1.logicalBytes }))")
                     }

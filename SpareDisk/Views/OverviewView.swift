@@ -270,6 +270,9 @@ private struct LocationRow: View {
         if let scan {
             var s = "\(scan.itemCount.formatted()) items, scanned \(scan.finishedAt.formatted(.relative(presentation: .named)))"
             if !scan.issues.isEmpty { s += ", \(scan.issues.count) unreadable" }
+            if let d = app.changes(for: location.id), d.bytesDelta != 0 {
+                s += ", \(d.bytesDelta > 0 ? "+" : "−")\(SDFormat.bytesString(abs(d.bytesDelta))) since last scan"
+            }
             return s
         }
         if !location.access.isOK { return location.access.label }

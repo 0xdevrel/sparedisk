@@ -19,23 +19,42 @@ nonisolated enum ScanStore {
         return directory?.appendingPathComponent("\(digest).json")
     }
 
+    private static func previousFile(for locationID: String) -> URL? {
+        file(for: locationID).map { $0.deletingPathExtension().appendingPathExtension("prev.json") }
+    }
+
     static func save(_ result: ScanResult) {
         guard !result.wasCancelled, let url = file(for: result.locationID) else { return }
+        // Keep exactly one earlier result for comparison.
+        if let prev = previousFile(for: result.locationID), FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: prev)
+            try? FileManager.default.moveItem(at: url, to: prev)
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(result) else { return }
         try? data.write(to: url, options: .atomic)
     }
 
+    static func loadPrevious(locationID: String) -> ScanResult? {
+        guard let url = previousFile(for: locationID) else { return nil }
+        return load(from: url)
+    }
+
     static func load(locationID: String) -> ScanResult? {
-        guard let url = file(for: locationID), let data = try? Data(contentsOf: url) else { return nil }
+        guard let url = file(for: locationID) else { return nil }
+        return load(from: url)
+    }
+
+    private static func load(from url: URL) -> ScanResult? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(ScanResult.self, from: data)
     }
 
     static func remove(locationID: String) {
-        guard let url = file(for: locationID) else { return }
-        try? FileManager.default.removeItem(at: url)
+        if let url = file(for: locationID) { try? FileManager.default.removeItem(at: url) }
+        if let prev = previousFile(for: locationID) { try? FileManager.default.removeItem(at: prev) }
     }
 }

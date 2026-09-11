@@ -13,6 +13,7 @@ extension AppState {
                 var loc = Self.describe(id: id, url: url, access: .available)
                 if let saved = ScanStore.load(locationID: id) {
                     scans[id] = saved
+                    previousScans[id] = ScanStore.loadPrevious(locationID: id)
                     loc.scannedBytes = saved.totalBytes
                     loc.scannedAt = saved.finishedAt
                     loc.issues = saved.issues.count
@@ -178,6 +179,7 @@ extension AppState {
         ScanStore.remove(locationID: id)
         locations.removeAll(where: { $0.id == id })
         scans.removeValue(forKey: id)
+        previousScans.removeValue(forKey: id)
         focusedScans = focusedScans.filter { !(keyIs($0.key, withinLocation: id)) }
         rebuildIndex()
         if activeLocationID == id { activeLocationID = locations.first?.id ?? "home" }
@@ -244,6 +246,7 @@ extension AppState {
         // A cancelled or superseded run keeps the previous usable results —
         // never an error state, never stale data over a newer scan.
         guard !result.wasCancelled, gen == scanGeneration else { return }
+        if let current = self.scans[locationID] { self.previousScans[locationID] = current }
         self.scans[locationID] = result
         // Fresh results invalidate focused drills into the old tree.
         self.focusedScans = self.focusedScans.filter { !(self.keyIs($0.key, withinLocation: locationID)) }

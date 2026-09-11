@@ -264,6 +264,14 @@ final class AppState {
     // MARK: - Real scan state (mock dataset remains for previews / empty states)
     var locations: [SDLocation] = []
     var scans: [String: ScanResult] = [:]
+    /// The scan before the current one, per location, for comparison.
+    var previousScans: [String: ScanResult] = [:]
+    var showChanges = false
+
+    func changes(for locationID: String) -> ScanDiff? {
+        guard let cur = scans[locationID], let prev = previousScans[locationID] else { return nil }
+        return ScanDiff.between(previous: prev, current: cur)
+    }
     var scanningLocationID: String?
     var scanProgress: ScanProgress?
     /// Every retained node by id, rebuilt when scans change, so lookups from
