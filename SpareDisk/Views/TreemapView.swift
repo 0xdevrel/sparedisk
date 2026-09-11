@@ -282,11 +282,20 @@ struct TreemapView: View {
         let kid = entry.node
         let isSelected = !entry.isOther && selected(kid)
         let isHovered = !entry.isOther && hoveredID == kid.id
-        let showName = rect.width >= 56 && rect.height >= 16
-        let showSize = rect.width >= 40 && rect.height >= 16 && !showName
+        let showBoth = rect.width >= 72 && rect.height >= 32
+        let showName = !showBoth && rect.width >= 56 && rect.height >= 16
+        let showSize = !showBoth && !showName && rect.width >= 52 && rect.height >= 16
         return ZStack(alignment: .topLeading) {
             Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(entry.isOther ? 0.35 : (isHovered || isSelected ? 0.75 : 0.55)))
-            if showName || showSize {
+            if showBoth {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(kid.name).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                    Text(SDFormat.bytesString(kid.logicalBytes)).font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }
+                .foregroundStyle(entry.isOther ? .secondary : .primary)
+                .padding(.horizontal, 4).padding(.top, 2)
+            } else if showName || showSize {
                 Text(showName ? kid.name : SDFormat.bytesString(kid.logicalBytes))
                     .font(.system(size: 10).monospacedDigit()).lineLimit(1)
                     .foregroundStyle(entry.isOther ? .secondary : .primary)
