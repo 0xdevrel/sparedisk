@@ -75,12 +75,27 @@ enum ScanEngine {
                                     currentPath: name))
         })
 
-        let kids = state.agg.map { name, e in
-            ScanNode(id: "\(locationID)/\(name)", name: name,
-                     path: root.appendingPathComponent(name).path,
-                     isFolder: e.isDir, isPackage: e.isPkg, category: e.cat,
-                     logicalBytes: e.bytes, modified: e.own,
-                     childCount: max(e.count - 1, e.isDir ? 1 : 0))
+        // Two-level tree: top entries with their immediate children.
+        // Deeper content is rolled into the child totals (see `sub`).
+        let kids = state.agg.map { name, e -> ScanNode in
+            let children = state.sub
+                .filter { $0.key.hasPrefix(name + "/") }
+                .map { key, s -> ScanNode in
+                    let second = String(key.dropFirst(name.count + 1))
+                    return ScanNode(id: "\(locationID)/\(name)/\(second)",
+                                    name: second,
+                                    path: root.appendingPathComponent(name).appendingPathComponent(second).path,
+                                    isFolder: s.isDir, isPackage: s.isPkg, category: s.cat,
+                                    logicalBytes: s.bytes, modified: s.own,
+                                    childCount: max(s.count - 1, s.isDir ? 1 : 0))
+                }
+                .sorted { $0.logicalBytes > $1.logicalBytes }
+            return ScanNode(id: "\(locationID)/\(name)", name: name,
+                            path: root.appendingPathComponent(name).path,
+                            isFolder: e.isDir, isPackage: e.isPkg, category: e.cat,
+                            logicalBytes: e.bytes, modified: e.own,
+                            childCount: max(e.count - 1, e.isDir ? 1 : 0),
+                            children: children.isEmpty ? nil : children)
         }.sorted { $0.logicalBytes > $1.logicalBytes }
 
         return ScanResult(locationID: locationID, rootName: rootName, totalBytes: state.total,
@@ -95,14 +110,45 @@ enum ScanEngine {
 
     /// Mutable walk accumulation, kept in one struct so the sync walker can
     /// take it inout without touching actor state.
+    private struct Agg {
+        var bytes: Int64 = 0
+        var count = 0
+        var mod: Date?
+        var own: Date?
+        var isDir = true
+        var isPkg = false
+        var cat: SDFileCategory = .other
+    }
+
+    /// Fold one visit into an aggregate. `own` is set only on the entry's
+    /// own visit (P1: directory mtime is never a descendant summary).
+    private static func accumulate(_ e: Agg, bytes: Int64, date: Date?,
+                                   isOwnVisit: Bool, isDir: Bool, url: URL,
+                                   isPkg: Bool) -> Agg {
+        var e = e
+        e.bytes += bytes
+        e.count += 1
+        if let m = date, e.mod == nil || m > e.mod! { e.mod = m }
+        if isOwnVisit {
+            e.isDir = isDir
+            e.isPkg = isPkg
+            e.cat = category(for: url, isDir: isDir)
+            e.own = date
+        }
+        return e
+    }
+
     private struct WalkState {
         var total: Int64 = 0
         var count = 0
         var issues: [ScanIssue] = []
-        /// name -> aggregate. `own` is the directory's own mtime (P1: never a
-        /// descendant summary); `mod` retains the newest descendant date.
-        var agg: [String: (bytes: Int64, count: Int, mod: Date?, own: Date?,
-                           isDir: Bool, isPkg: Bool, cat: SDFileCategory)] = [:]
+        /// Top-level aggregates by first component.
+        var agg: [String: Agg] = [:]
+        /// Second-level aggregates by "top/second", giving real drill-down
+        /// one level deep (bounded by depth-2 fanout, typically thousands).
+        /// Deeper content rolls into these totals; individual deep files
+        /// surface only via the largest/oldest rankings.
+        var sub: [String: Agg] = [:]
         var largest: [ScanNode] = []
         var smallestTracked: Int64 = 0
         var oldest: [ScanNode] = []
@@ -134,17 +180,19 @@ enum ScanEngine {
                 let stdComps = url.standardizedFileURL.pathComponents
                 let relComps = Array(stdComps.dropFirst(rootComps.count))
                 let top = relComps.first ?? url.lastPathComponent
-                var e = state.agg[top] ?? (0, 0, nil, nil, true, false, .other)
-                e.bytes += bytes
-                e.count += 1
-                if let m = vals.contentModificationDate, e.mod == nil || m > e.mod! { e.mod = m }
-                if relComps.count <= 1 {
-                    e.isDir = isDir
-                    e.isPkg = vals.isPackage ?? false
-                    e.cat = category(for: url, isDir: isDir)
-                    e.own = vals.contentModificationDate
+                state.agg[top, default: Agg()] = accumulate(state.agg[top] ?? Agg(),
+                                                            bytes: bytes, date: vals.contentModificationDate,
+                                                            isOwnVisit: relComps.count <= 1,
+                                                            isDir: isDir, url: url,
+                                                            isPkg: vals.isPackage ?? false)
+                if relComps.count >= 2 {
+                    let key = relComps[0] + "/" + relComps[1]
+                    state.sub[key, default: Agg()] = accumulate(state.sub[key] ?? Agg(),
+                                                               bytes: bytes, date: vals.contentModificationDate,
+                                                               isOwnVisit: relComps.count == 2,
+                                                               isDir: isDir, url: url,
+                                                               isPkg: vals.isPackage ?? false)
                 }
-                state.agg[top] = e
                 state.total += bytes
                 state.count += 1
 
