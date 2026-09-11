@@ -270,7 +270,7 @@ nonisolated enum ScanEngine {
                         sinceSnapshot = 0
                     }
                 }
-                publish(index: index, state: local, added: sinceSnapshot, force: false)
+                publish(index: index, state: local, added: sinceSnapshot, force: true)
                 local.links = links
                 statesLock.lock(); states[index] = local; statesLock.unlock()
             }
@@ -388,7 +388,7 @@ nonisolated enum ScanEngine {
             snapshotTotals[index] = (state.total, state.totalAlloc)
             sharedCount += added
             let now = Date()
-            let due = sharedCount - lastEmitCount >= ScanEngine.batchSize
+            let due = force || sharedCount - lastEmitCount >= ScanEngine.batchSize
                 || now.timeIntervalSince(lastEmit) > ScanEngine.batchInterval
             guard due, sharedCount > lastEmitCount else { progressLock.unlock(); return }
             lastEmit = now

@@ -72,3 +72,42 @@ struct DuplicateTests {
         #expect(partial.protected.isEmpty)
     }
 }
+
+/// Large-file paths: identical multi-megabyte files group, files that differ
+/// only in the middle do not, and the run does not pin the file in memory.
+struct DuplicateLargeFileTests {
+    @Test func identicalLargeFilesGroupAndMiddleDifferenceIsCaught() async throws {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let root = base.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var payload = Data(count: 24 * 1024 * 1024)
+        payload.withUnsafeMutableBytes { buf in for i in stride(from: 0, to: buf.count, by: 4099) { buf[i] = UInt8(i % 251) } }
+        try payload.write(to: root.appendingPathComponent("a.bin"))
+        try payload.write(to: root.appendingPathComponent("b.bin"))
+        var altered = payload
+        altered[altered.count / 2] ^= 0xFF
+        try altered.write(to: root.appendingPathComponent("c.bin"))
+
+        let before = residentBytes()
+        let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
+        let found = await DuplicateService.findDuplicates(files: result.largestFiles) { _ in }
+        let after = residentBytes()
+
+        #expect(found.groups.count == 1)
+        #expect(Set(found.groups[0].files.map(\.name)) == ["a.bin", "b.bin"])
+        // Three 24 MB files read twice must not leave their contents resident.
+        #expect(after - before < 60 * 1024 * 1024, "resident grew by \((after - before) / 1_048_576) MB")
+    }
+
+    private func residentBytes() -> Int64 {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        return kr == KERN_SUCCESS ? Int64(info.resident_size) : 0
+    }
+}

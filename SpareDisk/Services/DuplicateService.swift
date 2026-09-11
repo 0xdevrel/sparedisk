@@ -39,7 +39,7 @@ nonisolated enum DuplicateService {
     /// Comparison floor: below this, hashing costs more attention than it saves.
     static let minBytes: Int64 = 1_000_000
     private static let sampleBytes = 64 * 1024
-    private static let ioChunk = 256 * 1024
+    private static let ioChunk = 1024 * 1024
 
     /// Compare exactly the files handed in (retained rankings). The caller
     /// holds the grants; files that vanish or change mid-pass leave the
@@ -106,8 +106,7 @@ nonisolated enum DuplicateService {
             for f in fresh {
                 if Task.isCancelled { break }
                 do {
-                    let data = try readPrefix(url: URL(fileURLWithPath: f.path), maxBytes: sampleBytes)
-                    sampleBuckets[shaHex(SHA256.hash(data: data)), default: []].append(f)
+                    sampleBuckets[try sampleDigest(url: URL(fileURLWithPath: f.path)), default: []].append(f)
                 } catch {
                     skipped.append(skip(f, reason: "Could not be read."))
                 }
@@ -191,48 +190,96 @@ nonisolated enum DuplicateService {
 
     private enum Freshness { case ok, changed, gone }
 
+    /// Live facts through the same lstat path the scanner used; timestamps
+    /// compare with tolerance (see CleanupService.sameInstant).
     private static func verifyMetadata(_ f: ScanNode) -> Freshness {
-        let url = URL(fileURLWithPath: f.path)
-        guard let vals = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey]) else {
-            return .gone
-        }
-        if vals.isDirectory == true { return .changed }
-        if Int64(vals.fileSize ?? -1) != f.logicalBytes { return .changed }
-        if let old = f.modified, let now = vals.contentModificationDate, old != now { return .changed }
+        guard let live = ScanEngine.lstat(path: f.path) else { return .gone }
+        if live.isDir { return .changed }
+        if live.size != f.logicalBytes { return .changed }
+        if let old = f.modified, let now = live.modified, !CleanupService.sameInstant(old, now) { return .changed }
         return .ok
     }
 
-    private static func readPrefix(url: URL, maxBytes: Int) throws -> Data {
-        let h = try FileHandle(forReadingFrom: url)
-        defer { try? h.close() }
-        return try h.read(upToCount: maxBytes) ?? Data()
+    /// A file opened for streaming reads through one reusable buffer. POSIX
+    /// reads keep memory flat: FileHandle returned a fresh autoreleased Data
+    /// per chunk and a 10 GB file pinned 10 GB until the pool drained.
+    /// The file cache is bypassed so a 90 GB comparison does not evict
+    /// everything else from memory.
+    private final class Reader {
+        private let fd: Int32
+        let size: Int64
+        init(url: URL) throws {
+            fd = open(url.path, O_RDONLY | O_NOFOLLOW)
+            guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            _ = fcntl(fd, F_NOCACHE, 1)
+            var st = stat()
+            size = fstat(fd, &st) == 0 ? Int64(st.st_size) : 0
+        }
+        deinit { close(fd) }
+        /// Fill `buffer` from the current offset; returns bytes read, 0 at end.
+        func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+            var total = 0
+            while total < buffer.count {
+                let n = Darwin.read(fd, buffer.baseAddress! + total, buffer.count - total)
+                if n == 0 { break }
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                total += n
+            }
+            return total
+        }
+        func seek(to offset: Int64) { lseek(fd, off_t(offset), SEEK_SET) }
+    }
+
+    /// Head, middle and tail samples hashed together: rejects almost every
+    /// non-duplicate pair for a few hundred kilobytes of reading.
+    private static func sampleDigest(url: URL) throws -> String {
+        let r = try Reader(url: url)
+        let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: sampleBytes, alignment: 16)
+        defer { buffer.deallocate() }
+        var digest = SHA256()
+        let offsets: [Int64] = r.size > Int64(sampleBytes) * 3
+            ? [0, r.size / 2 - Int64(sampleBytes) / 2, r.size - Int64(sampleBytes)]
+            : [0]
+        for off in offsets {
+            r.seek(to: off)
+            let n = try r.read(into: buffer)
+            digest.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<n]))
+        }
+        return shaHex(digest.finalize())
     }
 
     private static func shaFile(url: URL, progress: (Int64) -> Void = { _ in }) throws -> String {
-        let h = try FileHandle(forReadingFrom: url)
-        defer { try? h.close() }
+        let r = try Reader(url: url)
+        let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: ioChunk, alignment: 16)
+        defer { buffer.deallocate() }
         var digest = SHA256()
         while true {
-            guard let data = try h.read(upToCount: ioChunk), !data.isEmpty else { break }
-            digest.update(data: data)
-            progress(Int64(data.count))
+            let n = try r.read(into: buffer)
+            if n == 0 { break }
+            digest.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<n]))
+            progress(Int64(n))
             if Task.isCancelled { throw CancellationError() }
         }
-        guard !Task.isCancelled else { throw CancellationError() }
         return shaHex(digest.finalize())
     }
 
     private static func contentsEqual(_ a: URL, _ b: URL, progress: (Int64) -> Void = { _ in }) throws -> Bool {
-        let ha = try FileHandle(forReadingFrom: a)
-        defer { try? ha.close() }
-        let hb = try FileHandle(forReadingFrom: b)
-        defer { try? hb.close() }
+        let ra = try Reader(url: a)
+        let rb = try Reader(url: b)
+        guard ra.size == rb.size else { return false }
+        let ba = UnsafeMutableRawBufferPointer.allocate(byteCount: ioChunk, alignment: 16)
+        let bb = UnsafeMutableRawBufferPointer.allocate(byteCount: ioChunk, alignment: 16)
+        defer { ba.deallocate(); bb.deallocate() }
         while true {
-            let da = try ha.read(upToCount: ioChunk) ?? Data()
-            let db = try hb.read(upToCount: ioChunk) ?? Data()
-            if da != db { return false }
-            if da.isEmpty { return true }
-            progress(Int64(da.count))
+            let na = try ra.read(into: ba)
+            let nb = try rb.read(into: bb)
+            if na != nb { return false }
+            if na == 0 { return true }
+            if memcmp(ba.baseAddress!, bb.baseAddress!, na) != 0 { return false }
+            progress(Int64(na))
             if Task.isCancelled { throw CancellationError() }
         }
     }
