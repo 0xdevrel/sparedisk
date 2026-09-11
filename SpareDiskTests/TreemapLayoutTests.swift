@@ -45,4 +45,24 @@ struct TreemapLayoutTests {
         let second = TreemapLayout.squarify(input, in: box)
         #expect(first == second)
     }
+
+    /// Regression for the inverted-side bug: real Downloads data at the real
+    /// map size produced a 918×11 strip (aspect 80). Proper squarify keeps
+    /// every cell readable.
+    @Test func realWorldDataKeepsAspectRatiosBounded() {
+        let mb: [(id: String, weight: CGFloat)] = [
+            ("android", 1520), ("mp4", 798.7), ("other", 594), ("lm", 553.2), ("ollama", 452.2),
+            ("blender", 346.3), ("bs1", 326.2), ("bs2", 297.1), ("cursor", 246.5), ("zcode", 235.5),
+            ("comet", 224.1), ("grok", 152), ("void", 147.1), ("zed", 133.7), ("cf", 130.3), ("dyad", 123.5),
+        ]
+        let frames = TreemapLayout.squarify(mb, in: CGRect(x: 0, y: 0, width: 918, height: 580))
+        #expect(frames.count == mb.count)
+        for f in frames {
+            let aspect = max(f.rect.width / f.rect.height, f.rect.height / f.rect.width)
+            #expect(aspect < 4, "\(f.id) has aspect \(aspect)")
+            #expect(f.rect.width >= 40 && f.rect.height >= 40, "\(f.id) is \(f.rect.size)")
+        }
+        let area = frames.reduce(CGFloat(0)) { $0 + $1.rect.width * $1.rect.height }
+        #expect(abs(area - 918 * 580) < 1)
+    }
 }

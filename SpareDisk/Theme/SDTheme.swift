@@ -35,6 +35,16 @@ enum SDTheme {
         }
     }
 
+    /// Flat map fill. Light mode wants a pastel over white; dark mode wants
+    /// a deeper tint so text stays legible and orange does not turn brown.
+    static func mapFill(for category: SDFileCategory, scheme: ColorScheme, emphasized: Bool) -> Color {
+        let base = color(for: category)
+        switch scheme {
+        case .dark: return base.opacity(emphasized ? 0.72 : 0.5)
+        default: return base.opacity(emphasized ? 0.5 : 0.3)
+        }
+    }
+
     static let rowHeight: CGFloat = 34
     static let corner: CGFloat = 8
 }

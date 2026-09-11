@@ -1,280 +1,338 @@
 import SwiftUI
 
-// Principal visual mode (§3.9, §7.4): bounded squarified areas, crisp
-// separators, "Other items" aggregation, labels only when they fit both
-// dimensions. Cells are real buttons: Tab-focusable, VoiceOver-labelled,
-// double-click drills into folders with children. "Other" switches to the
-// ranked list, where every small item is explorable — the map never strands.
+// Principal visual mode (§3.9, §7.4): squarified areas, flat fills, crisp
+// 1-point gaps, one "Other" aggregate for cells too small to read. Every
+// cell is a real button: focusable, VoiceOver-labelled, hover-highlighted.
+// Return or double-click drills into a folder; the breadcrumb climbs back.
 struct TreemapView: View {
     @Environment(AppState.self) private var app
+    @Environment(\.colorScheme) private var scheme
+    @State private var hoveredID: String?
     let nodes: [ScanNode]
 
     private var focus: ScanNode? { app.mapTrail.last }
 
     private var levelNodes: [ScanNode] {
-        if let f = focus {
-            return app.children(of: f) ?? []
-        }
+        if let f = focus { return app.children(of: f) ?? [] }
         return nodes
     }
 
     private var levelSum: Int64 { levelNodes.reduce(0) { $0 + $1.logicalBytes } }
 
-    private var hasNested: Bool { levelNodes.contains { !($0.children ?? []).isEmpty } }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             breadcrumb
-            HStack {
-                Text("Map · \(hasNested ? "up to 2 levels" : "1 level") · areas share \(SDFormat.bytesString(levelSum)) shown")
-                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                Spacer()
-                Text("Double-click a folder to drill in")
-                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, SDTheme.Space.md)
-
             GeometryReader { geo in
-                if geo.size.width < 120 || geo.size.height < 120 {
-                    Text("Make the window wider to explore the map — the list always works.")
+                if geo.size.width < 160 || geo.size.height < 120 {
+                    Text("Widen the window to see the map.")
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if levelNodes.isEmpty {
-                    if let f = focus, app.drillScanningID == f.id, let p = app.drillProgress {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                            Text("Reading \(f.name)… \(p.itemsFound.formatted()) items found")
-                                .font(SDTheme.Font.body)
-                            Button("Cancel") { app.cancelDrill() }.buttonStyle(.bordered).controlSize(.small)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if let f = focus {
-                        VStack(spacing: 8) {
-                            Text("Couldn't read \(f.name)'s contents.").font(SDTheme.Font.body)
-                            Text("The folder may be offline or its access expired.")
-                                .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                            Button("Try Again") { app.ensureChildren(f) }.buttonStyle(.bordered).controlSize(.small)
-                            Button("Up") { _ = app.mapTrail.popLast() }.buttonStyle(.link).font(SDTheme.Font.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        Text("No files found in this folder.").font(SDTheme.Font.body)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
+                    emptyLevel
                 } else {
                     mapBody(size: geo.size)
                 }
             }
-            .padding(SDTheme.Space.sm)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
             .padding(.horizontal, SDTheme.Space.md)
-            .padding(.bottom, SDTheme.Space.sm)
-
-            Text("Same data as the list — every action is also available from rows and menus.")
-                .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
-                .padding(.horizontal, SDTheme.Space.md)
-                .padding(.bottom, SDTheme.Space.sm)
+            .padding(.vertical, SDTheme.Space.xs)
         }
     }
 
-    // MARK: - Breadcrumb drill-down
+    // MARK: - Breadcrumb
 
     private var breadcrumb: some View {
-        HStack(spacing: 4) {
-            Button(app.mapTrail.isEmpty ? "This folder" : "Top") {
+        HStack(spacing: 6) {
+            Button {
                 app.mapTrail.removeAll()
+            } label: {
+                Label(app.activeLocation?.name ?? "Top", systemImage: "folder")
+                    .labelStyle(.titleAndIcon)
             }
-            .buttonStyle(.link).font(SDTheme.Font.secondary)
+            .buttonStyle(.plain)
+            .foregroundStyle(app.mapTrail.isEmpty ? .primary : Color.accentColor)
             .disabled(app.mapTrail.isEmpty)
             ForEach(Array(app.mapTrail.enumerated()), id: \.element.id) { index, node in
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                 Button(node.name) {
                     app.mapTrail.removeLast(app.mapTrail.count - index - 1)
                     app.inspectedNodeID = node.id
                 }
-                .buttonStyle(.link).font(SDTheme.Font.secondary)
+                .buttonStyle(.plain)
+                .foregroundStyle(index == app.mapTrail.count - 1 ? .primary : Color.accentColor)
+                .disabled(index == app.mapTrail.count - 1)
                 .lineLimit(1)
             }
             Spacer()
+            Text(SDFormat.bytesString(levelSum))
+                .font(SDTheme.Font.secondary.monospacedDigit()).foregroundStyle(.secondary)
             if !app.mapTrail.isEmpty {
-                Button("Up") { _ = app.mapTrail.popLast() }
-                    .buttonStyle(.link).font(SDTheme.Font.secondary)
+                Button("Enclosing Folder", systemImage: "arrow.up") { _ = app.mapTrail.popLast() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.upArrow, modifiers: .command)
+                    .help("Enclosing folder (⌘↑)")
             }
         }
+        .font(SDTheme.Font.secondary)
         .padding(.horizontal, SDTheme.Space.md)
-        .padding(.top, SDTheme.Space.sm)
+        .padding(.top, SDTheme.Space.xs)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Map location")
     }
 
-    // MARK: - Map body
+    private var emptyLevel: some View {
+        Group {
+            if let f = focus, app.drillScanningID == f.id, let p = app.drillProgress {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Reading \(f.name)… \(p.itemsFound.formatted()) items")
+                        .font(SDTheme.Font.body)
+                    Button("Cancel") { app.cancelDrill() }.buttonStyle(.bordered).controlSize(.small)
+                }
+            } else if let f = focus {
+                VStack(spacing: 8) {
+                    Text("Couldn't read \(f.name).").font(SDTheme.Font.body)
+                    Text("The folder may be offline or its access may have expired.")
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                    Button("Try Again") { app.ensureChildren(f) }.buttonStyle(.bordered).controlSize(.small)
+                }
+            } else {
+                Text("No files in this folder.").font(SDTheme.Font.body).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Layout
+
+    private struct Entry {
+        var node: ScanNode
+        var isOther: Bool
+        var members: Int
+    }
+
+    /// Cells smaller than this many square points cannot show a size label,
+    /// so they are folded into one "Other" cell that does.
+    private static let minCellArea: CGFloat = 40 * 22
+    private static let maxCells = 80
+
+    private func aggregated(_ items: [ScanNode], in rect: CGRect) -> [Entry] {
+        let sorted = items.sorted { $0.logicalBytes > $1.logicalBytes }
+        let sum = max(1, items.reduce(0) { $0 + $1.logicalBytes })
+        let scale = rect.width * rect.height / CGFloat(sum)
+        var big: [ScanNode] = []
+        var small: [ScanNode] = []
+        for (i, n) in sorted.enumerated() {
+            if CGFloat(n.logicalBytes) * scale >= Self.minCellArea && i < Self.maxCells {
+                big.append(n)
+            } else {
+                small.append(n)
+            }
+        }
+        // A lone leftover is not "Other"; just show it.
+        if small.count == 1, big.count < Self.maxCells { big.append(small.removeFirst()) }
+        var out = big.map { Entry(node: $0, isOther: false, members: 0) }
+        if !small.isEmpty {
+            let bytes = small.reduce(0) { $0 + $1.logicalBytes }
+            let other = ScanNode(id: "__other-\(focus?.id ?? "top")", name: "\(small.count) smaller items",
+                                 path: "", isFolder: true, category: .other, logicalBytes: bytes,
+                                 modified: nil, childCount: small.count)
+            out.append(Entry(node: other, isOther: true, members: small.count))
+        }
+        return out
+    }
 
     private func mapBody(size: CGSize) -> some View {
         let rect = CGRect(origin: .zero, size: size)
-        let entries = aggregated(levelNodes, tag: "top")
+        let entries = aggregated(levelNodes, in: rect)
         let frames = TreemapLayout.squarify(entries.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: rect)
         let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.node.id, $0) })
         return ZStack(alignment: .topLeading) {
             ForEach(frames, id: \.id) { frame in
                 if let entry = byID[frame.id] {
-                    // .position (not .offset): centers land exactly in parent
-                    // space, so tiles butt against each other with no drift.
-                    if entry.isOther {
-                        otherCell(entry: entry, rect: frame.rect.insetBy(dx: 2, dy: 2))
-                            .position(x: frame.rect.midX, y: frame.rect.midY)
-                    } else {
-                        folderCell(node: entry.node, rect: frame.rect.insetBy(dx: 2, dy: 2), denom: levelSum)
-                            .position(x: frame.rect.midX, y: frame.rect.midY)
+                    let r = frame.rect.insetBy(dx: 1, dy: 1)
+                    Group {
+                        if entry.isOther {
+                            otherCell(entry: entry, rect: r)
+                        } else {
+                            cell(node: entry.node, rect: r)
+                        }
                     }
+                    .frame(width: max(0, r.width), height: max(0, r.height))
+                    .position(x: frame.rect.midX, y: frame.rect.midY)
                 }
             }
         }
         .frame(width: size.width, height: size.height)
-    }
-
-    /// Split a level into comparable marks + one "Other" aggregate.
-    private func aggregated(_ items: [ScanNode], tag: String) -> [(node: ScanNode, isOther: Bool, members: Int)] {
-        let sorted = items.sorted { $0.logicalBytes > $1.logicalBytes }
-        let sum = items.reduce(0) { $0 + $1.logicalBytes }
-        let threshold = sum / 64 // ~1.5% of this level
-        let big = sorted.filter { $0.logicalBytes >= threshold }
-        let small = sorted.filter { $0.logicalBytes < threshold }
-        var out = big.map { (node: $0, isOther: false, members: 0) }
-        if !small.isEmpty {
-            let bytes = small.reduce(0) { $0 + $1.logicalBytes }
-            let other = ScanNode(id: "__other-\(tag)", name: "Other \(small.count) items", path: "",
-                                 isFolder: true, category: .other, logicalBytes: bytes,
-                                 modified: nil, childCount: small.count)
-            out.append((node: other, isOther: true, members: small.count))
-        }
-        return out
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Cells
 
-    private func folderCell(node: ScanNode, rect: CGRect, denom: Int64) -> some View {
-        let kids = (node.children ?? []).sorted { $0.logicalBytes > $1.logicalBytes }
-        let shown = Array(kids.prefix(8))
-        let hidden = kids.count - shown.count
-        // Deterministic vertical split: header + nested area + caption always
-        // sum to the cell height, so no blank slab can appear mid-cell.
-        let showTitle = rect.width > 64
-        let showSize = showTitle && rect.height > 40
-        let headerH: CGFloat = showTitle ? (showSize ? 46 : 28) : 6
-        let moreH: CGFloat = hidden > 0 ? 18 : 0
-        let bodyH = max(0, rect.height - headerH - moreH - 4)
-        let bodyW = max(0, rect.width - 8)
-        let canNest = !shown.isEmpty && bodyW > 60 && bodyH > 44
-        let childFrames = canNest
-            ? TreemapLayout.squarify(shown.map { ($0.id, CGFloat($0.logicalBytes)) },
-                                     in: CGRect(x: 0, y: 0, width: bodyW, height: bodyH))
-            : []
-        let kidsByID = Dictionary(uniqueKeysWithValues: shown.map { ($0.id, $0) })
-        return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(SDTheme.color(for: node.category).opacity(selected(node) ? 0.85 : 0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(selected(node) ? Color.accentColor : Color.primary.opacity(0.18),
-                                lineWidth: selected(node) ? 2.5 : 1)
-                )
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    app.inspectedNodeID = node.id
-                } label: {
-                    VStack(alignment: .leading, spacing: 1) {
-                        if showTitle {
-                            Text(node.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                        }
-                        if showSize {
-                            Text(SDFormat.bytesString(node.logicalBytes))
-                                .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(6)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusable()
-                .frame(height: headerH)
-                .simultaneousGesture(TapGesture(count: 2).onEnded { drill(node) })
-                .help("\(node.name) — \(SDFormat.bytesString(node.logicalBytes)). Double-click to drill in.")
-                .accessibilityLabel("\(node.name), \(SDFormat.bytesString(node.logicalBytes))\(kids.isEmpty ? "" : ", folder, double-click to drill in")")
+    /// Label plan for a cell of the given size. Size is shown whenever it
+    /// fits, even when the name does not.
+    private enum LabelPlan { case nameAndSize, nameOnly, sizeOnly, none }
 
-                if canNest {
-                    ZStack(alignment: .topLeading) {
-                        ForEach(childFrames, id: \.id) { frame in
-                            if let kid = kidsByID[frame.id] {
-                                Button {
-                                    app.inspectedNodeID = kid.id
-                                } label: {
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.75))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 3)
-                                                .stroke(selected(kid) ? Color.accentColor : Color.primary.opacity(0.15),
-                                                        lineWidth: selected(kid) ? 2 : 1)
-                                        )
-                                        .overlay(alignment: .topLeading) {
-                                            if frame.rect.width > 56 && frame.rect.height > 22 {
-                                                Text(kid.name).font(.system(size: 10)).lineLimit(1)
-                                                    .padding(4)
-                                            }
-                                        }
-                                }
-                                .buttonStyle(.plain)
-                                .focusable()
-                                .simultaneousGesture(TapGesture(count: 2).onEnded { drill(kid) })
-                                .help("\(kid.name) — \(SDFormat.bytesString(kid.logicalBytes))")
-                                .accessibilityLabel("\(kid.name), \(SDFormat.bytesString(kid.logicalBytes))")
-                                .frame(width: max(0, frame.rect.width - 2), height: max(0, frame.rect.height - 2))
-                                .position(x: frame.rect.midX, y: frame.rect.midY)
-                            }
-                        }
-                    }
-                    .frame(width: bodyW, height: bodyH)
-                    .padding(.horizontal, 4)
-                    if hidden > 0 {
-                        Text("+\(hidden) more in list")
-                            .font(.system(size: 10)).foregroundStyle(.secondary)
-                            .frame(height: moreH)
-                            .padding(.horizontal, 6)
-                    }
-                }
-            }
-        }
-        .frame(width: max(0, rect.width), height: max(0, rect.height))
+    private func plan(for rect: CGRect) -> LabelPlan {
+        if rect.width >= 72 && rect.height >= 34 { return .nameAndSize }
+        if rect.width >= 72 && rect.height >= 17 { return .nameOnly }
+        if rect.width >= 40 && rect.height >= 15 { return .sizeOnly }
+        return .none
     }
 
-    private func otherCell(entry: (node: ScanNode, isOther: Bool, members: Int), rect: CGRect) -> some View {
-        Button {
-            // Meaningful activation: the ranked list explores every member.
-            app.viewMode = .list
-        } label: {
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(nsColor: .separatorColor).opacity(0.45))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color.primary.opacity(0.18), lineWidth: 1)
-                    )
-                VStack(alignment: .leading, spacing: 2) {
-                    if rect.width > 64 {
-                        Text("Other \(entry.members)").font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                    }
-                    if rect.width > 64 && rect.height > 40 {
-                        Text("Show in list").font(.system(size: 11)).foregroundStyle(.secondary)
+    private func headerHeight(for plan: LabelPlan) -> CGFloat {
+        switch plan {
+        case .nameAndSize: 34
+        case .nameOnly, .sizeOnly: 18
+        case .none: 0
+        }
+    }
+
+    private func cell(node: ScanNode, rect: CGRect) -> some View {
+        let isSelected = selected(node)
+        let isHovered = hoveredID == node.id
+        let labels = plan(for: rect)
+        let headerH = headerHeight(for: labels)
+        // Nesting: real folders only (never packages), and only when the
+        // body is large enough to show something readable.
+        let kids = node.isPackage ? [] : (app.children(of: node) ?? []).sorted { $0.logicalBytes > $1.logicalBytes }
+        let bodyRect = CGRect(x: 3, y: headerH, width: rect.width - 6, height: rect.height - headerH - 3)
+        let canNest = !kids.isEmpty && bodyRect.width >= 80 && bodyRect.height >= 44
+        let nested = canNest ? nestedEntries(kids, in: bodyRect) : []
+        let childFrames = canNest
+            ? TreemapLayout.squarify(nested.map { ($0.node.id, CGFloat($0.node.logicalBytes)) }, in: bodyRect)
+            : []
+        let nestedByID = Dictionary(uniqueKeysWithValues: nested.map { ($0.node.id, $0) })
+
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(SDTheme.mapFill(for: node.category, scheme: scheme, emphasized: isHovered || isSelected))
+            if labels != .none {
+                cellLabel(node: node, plan: labels)
+                    .padding(.horizontal, 5)
+                    .frame(width: rect.width, height: headerH, alignment: .leading)
+            }
+            if canNest {
+                ForEach(childFrames, id: \.id) { frame in
+                    if let entry = nestedByID[frame.id] {
+                        let r = frame.rect.insetBy(dx: 1, dy: 1)
+                        nestedCell(entry: entry, rect: r)
+                            .frame(width: max(0, r.width), height: max(0, r.height))
+                            .position(x: frame.rect.midX, y: frame.rect.midY)
                     }
                 }
-                .padding(6)
+            }
+            Rectangle()
+                .stroke(isSelected ? Color.accentColor : Color.primary.opacity(isHovered ? 0.35 : 0.12),
+                        lineWidth: isSelected ? 2 : 1)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { drill(node) }
+        .onTapGesture { app.inspectedNodeID = node.id }
+        .onHover { hoveredID = $0 ? node.id : (hoveredID == node.id ? nil : hoveredID) }
+        .focusable()
+        .onKeyPress(.return) { drill(node); return .handled }
+        .onKeyPress(.space) { app.preview(node); return .handled }
+        .contextMenu { NodeContextMenu(node: node, source: "Map") }
+        .help("\(node.name)\n\(SDFormat.bytesString(node.logicalBytes))\(node.isFolder && !node.isPackage ? "\nDouble-click to open" : "")")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(node.name), \(SDFormat.bytesString(node.logicalBytes))\(node.isFolder ? ", folder" : "")")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private func cellLabel(node: ScanNode, plan: LabelPlan) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch plan {
+            case .nameAndSize:
+                Text(node.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                Text(SDFormat.bytesString(node.logicalBytes))
+                    .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+            case .nameOnly:
+                Text(node.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+            case .sizeOnly:
+                Text(SDFormat.bytesString(node.logicalBytes))
+                    .font(.system(size: 11).monospacedDigit()).lineLimit(1)
+            case .none:
+                EmptyView()
             }
         }
-        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+    }
+
+    private func nestedEntries(_ kids: [ScanNode], in rect: CGRect) -> [Entry] {
+        let sum = max(1, kids.reduce(0) { $0 + $1.logicalBytes })
+        let scale = rect.width * rect.height / CGFloat(sum)
+        var big: [ScanNode] = []
+        var rest: [ScanNode] = []
+        for k in kids {
+            if CGFloat(k.logicalBytes) * scale >= 30 * 14 && big.count < 12 { big.append(k) } else { rest.append(k) }
+        }
+        if rest.count == 1 { big.append(rest.removeFirst()) }
+        var out = big.map { Entry(node: $0, isOther: false, members: 0) }
+        if !rest.isEmpty {
+            let bytes = rest.reduce(0) { $0 + $1.logicalBytes }
+            out.append(Entry(node: ScanNode(id: "__more-\(kids.first?.id ?? "")", name: "\(rest.count) more",
+                                            path: "", isFolder: true, category: .other, logicalBytes: bytes,
+                                            modified: nil, childCount: rest.count),
+                             isOther: true, members: rest.count))
+        }
+        return out
+    }
+
+    private func nestedCell(entry: Entry, rect: CGRect) -> some View {
+        let kid = entry.node
+        let isSelected = !entry.isOther && selected(kid)
+        let isHovered = !entry.isOther && hoveredID == kid.id
+        let showName = rect.width >= 56 && rect.height >= 16
+        let showSize = rect.width >= 40 && rect.height >= 16 && !showName
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(entry.isOther ? 0.35 : (isHovered || isSelected ? 0.75 : 0.55)))
+            if showName || showSize {
+                Text(showName ? kid.name : SDFormat.bytesString(kid.logicalBytes))
+                    .font(.system(size: 10).monospacedDigit()).lineLimit(1)
+                    .foregroundStyle(entry.isOther ? .secondary : .primary)
+                    .padding(.horizontal, 4).padding(.top, 2)
+            }
+            Rectangle().stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.10), lineWidth: isSelected ? 2 : 1)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { if !entry.isOther { drill(kid) } }
+        .onTapGesture { if !entry.isOther { app.inspectedNodeID = kid.id } }
+        .onHover { if !entry.isOther { hoveredID = $0 ? kid.id : (hoveredID == kid.id ? nil : hoveredID) } }
+        .help(entry.isOther ? "\(entry.members) smaller items, \(SDFormat.bytesString(kid.logicalBytes))"
+                            : "\(kid.name)\n\(SDFormat.bytesString(kid.logicalBytes))")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(entry.isOther ? "\(entry.members) smaller items, \(SDFormat.bytesString(kid.logicalBytes))"
+                                          : "\(kid.name), \(SDFormat.bytesString(kid.logicalBytes))")
+    }
+
+    private func otherCell(entry: Entry, rect: CGRect) -> some View {
+        let labels = plan(for: rect)
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(Color.primary.opacity(hoveredID == entry.node.id ? 0.12 : 0.07))
+            if labels != .none {
+                VStack(alignment: .leading, spacing: 0) {
+                    if labels != .sizeOnly {
+                        Text(entry.node.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                    }
+                    if labels != .nameOnly {
+                        Text(SDFormat.bytesString(entry.node.logicalBytes))
+                            .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 5)
+                .frame(width: rect.width, height: headerHeight(for: labels), alignment: .leading)
+            }
+            Rectangle().stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { app.viewMode = .list }
+        .onHover { hoveredID = $0 ? entry.node.id : (hoveredID == entry.node.id ? nil : hoveredID) }
         .focusable()
-        .frame(width: max(0, rect.width), height: max(0, rect.height))
-        .help("Other \(entry.members) small items — activate to explore them in the list")
-        .accessibilityLabel("Other \(entry.members) small items. Activate to show in list.")
+        .onKeyPress(.return) { app.viewMode = .list; return .handled }
+        .help("\(entry.members) items too small to draw, \(SDFormat.bytesString(entry.node.logicalBytes)) in total.\nClick to see them in the list.")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(entry.members) smaller items, \(SDFormat.bytesString(entry.node.logicalBytes)). Activate to show in list.")
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Helpers
@@ -282,12 +340,10 @@ struct TreemapView: View {
     private func selected(_ node: ScanNode) -> Bool { app.inspectedNodeID == node.id }
 
     private func drill(_ node: ScanNode) {
-        guard node.isFolder, !node.isCloudPlaceholder else { return }
-        if !app.mapTrail.contains(where: { $0.id == node.id }) {
-            app.mapTrail.append(node)
-        }
+        guard node.isFolder, !node.isPackage, !node.isCloudPlaceholder else { return }
+        guard !app.mapTrail.contains(where: { $0.id == node.id }) else { return }
+        app.mapTrail.append(node)
         app.inspectedNodeID = node.id
-        // No retained children: read the folder under the existing grant.
         app.ensureChildren(node)
     }
 }

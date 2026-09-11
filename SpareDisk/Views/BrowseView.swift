@@ -10,8 +10,13 @@ struct BrowseView: View {
     private var locName: String {
         app.locations.first(where: { $0.id == locationID })?.name ?? "Home folder"
     }
-    private var all: [ScanNode] { app.hasRealData ? (scan?.topNodes ?? []) : MockData.topLevel }
-    private var total: Int64 { app.hasRealData ? (scan?.totalBytes ?? 0) : MockData.homeTree.logicalBytes }
+    private var scanningHere: Bool { app.isScanning && app.scanningLocationID == locationID }
+    private var all: [ScanNode] { app.hasRealData ? app.visibleTopNodes(for: locationID) : MockData.topLevel }
+    private var total: Int64 {
+        guard app.hasRealData else { return MockData.homeTree.logicalBytes }
+        if let scan { return scan.totalBytes }
+        return scanningHere ? (app.scanProgress?.partialBytes ?? 0) : 0
+    }
 
     private var nodes: [ScanNode] {
         guard !app.searchText.isEmpty else { return all }
@@ -70,7 +75,7 @@ struct BrowseView: View {
 
             Divider()
 
-            if nodes.isEmpty && !app.isScanning {
+            if nodes.isEmpty && !scanningHere {
                 VStack(spacing: 8) {
                     Text(app.searchText.isEmpty ? "No scanned files to show." : "No files match your search.").font(SDTheme.Font.body)
                     Button("Choose Another Folder…") { Task { await app.addLocationFlow() } }.buttonStyle(.link)

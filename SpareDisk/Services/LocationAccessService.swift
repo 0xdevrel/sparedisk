@@ -30,6 +30,22 @@ struct GrantedLocation: Hashable {
 
 enum LocationAccessService {
     private static let storeKey = "SpareDisk.LocationBookmarks.v1"
+    private static let orderKey = "SpareDisk.LocationOrder.v1"
+
+    /// Stored ids in the order the user added them. Bookmarks live in a
+    /// dictionary, whose iteration order changes between launches.
+    static func orderedIDs() -> [String] {
+        let known = Set(loadBookmarks().keys)
+        var order = (UserDefaults.standard.stringArray(forKey: orderKey) ?? []).filter { known.contains($0) }
+        for id in known.subtracting(order).sorted() { order.append(id) }
+        return order
+    }
+
+    private static func remember(id: String) {
+        var order = UserDefaults.standard.stringArray(forKey: orderKey) ?? []
+        if !order.contains(id) { order.append(id) }
+        UserDefaults.standard.set(order, forKey: orderKey)
+    }
 
     // MARK: - Open panel (explicit user choice, the only way in)
     @MainActor
@@ -60,6 +76,7 @@ enum LocationAccessService {
             var all = loadBookmarks()
             all[url.path] = data
             UserDefaults.standard.set(all, forKey: storeKey)
+            remember(id: url.path)
             return grant
         } catch {
             throw LocationAccessError.bookmarkFailed
@@ -90,6 +107,9 @@ enum LocationAccessService {
         var all = loadBookmarks()
         all.removeValue(forKey: id)
         UserDefaults.standard.set(all, forKey: storeKey)
+        var order = UserDefaults.standard.stringArray(forKey: orderKey) ?? []
+        order.removeAll { $0 == id }
+        UserDefaults.standard.set(order, forKey: orderKey)
     }
 
     /// Rebuild stored bookmark data while access is held. Call only after a

@@ -27,7 +27,11 @@ enum TreemapLayout {
         var i = 0
         while i < items.count {
             guard rest.width > 0, rest.height > 0 else { break }
-            let side = max(rest.width, rest.height)
+            // Rows are laid along the SHORTER side (Bruls et al.): a wide
+            // leftover gets a full-height column on its left, a tall one gets
+            // a full-width strip on top. Using the longer side inverts the
+            // algorithm and produces hairline strips for the last items.
+            let side = min(rest.width, rest.height)
             let next = items[i]
             if row.isEmpty
                 || worst(row, sum: rowSum, side: side, scale: scale)
@@ -56,32 +60,34 @@ enum TreemapLayout {
         return max((side * side * mx) / (s * s), (s * s) / (side * side * mn))
     }
 
-    /// Emit one row as a full-width (or full-height) strip; return the leftover.
+    /// Emit one row along the shorter side of `rect`; return the leftover.
     @discardableResult
     private static func emit(_ row: [(id: String, weight: CGFloat)], sum: CGFloat,
                              from rect: CGRect, scale: CGFloat,
                              into out: inout [TreemapFrame]) -> CGRect {
         guard sum > 0 else { return rect }
         if rect.width >= rect.height {
-            let h = max(0, (sum * scale) / max(rect.width, 1))
-            var x = rect.minX
-            for (index, item) in row.enumerated() {
-                var w = max(0, (item.weight * scale) / max(h, 1))
-                if index == row.count - 1 { w = max(0, rect.maxX - x) } // absorb float error
-                out.append(TreemapFrame(id: item.id, rect: CGRect(x: x, y: rect.minY, width: w, height: h)))
-                x += w
-            }
-            return CGRect(x: rect.minX, y: rect.minY + h, width: rect.width, height: max(0, rect.height - h))
-        } else {
+            // Column on the left spanning the full height.
             let w = max(0, (sum * scale) / max(rect.height, 1))
             var y = rect.minY
             for (index, item) in row.enumerated() {
                 var h = max(0, (item.weight * scale) / max(w, 1))
-                if index == row.count - 1 { h = max(0, rect.maxY - y) }
+                if index == row.count - 1 { h = max(0, rect.maxY - y) } // absorb float error
                 out.append(TreemapFrame(id: item.id, rect: CGRect(x: rect.minX, y: y, width: w, height: h)))
                 y += h
             }
             return CGRect(x: rect.minX + w, y: rect.minY, width: max(0, rect.width - w), height: rect.height)
+        } else {
+            // Strip on top spanning the full width.
+            let h = max(0, (sum * scale) / max(rect.width, 1))
+            var x = rect.minX
+            for (index, item) in row.enumerated() {
+                var w = max(0, (item.weight * scale) / max(h, 1))
+                if index == row.count - 1 { w = max(0, rect.maxX - x) }
+                out.append(TreemapFrame(id: item.id, rect: CGRect(x: x, y: rect.minY, width: w, height: h)))
+                x += w
+            }
+            return CGRect(x: rect.minX, y: rect.minY + h, width: rect.width, height: max(0, rect.height - h))
         }
     }
 }

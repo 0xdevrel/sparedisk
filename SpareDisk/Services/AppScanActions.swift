@@ -5,12 +5,19 @@ import Foundation
 extension AppState {
     @MainActor
     func restoreStoredLocations() {
-        for (id, _) in LocationAccessService.loadBookmarks() {
+        for id in LocationAccessService.orderedIDs() {
             guard !locations.contains(where: { $0.id == id }) else { continue }
             do {
                 let (url, stale) = try LocationAccessService.resolve(id: id)
                 if stale { notice = "A saved location needed re-authorization. Choose it again if its scan looks stale." }
-                locations.append(Self.describe(id: id, url: url, access: .available))
+                var loc = Self.describe(id: id, url: url, access: .available)
+                if let saved = ScanStore.load(locationID: id) {
+                    scans[id] = saved
+                    loc.scannedBytes = saved.totalBytes
+                    loc.scannedAt = saved.finishedAt
+                    loc.issues = saved.issues.count
+                }
+                locations.append(loc)
             } catch {
                 locations.append(SDLocation(id: id, name: URL(fileURLWithPath: id).lastPathComponent,
                                             symbol: "folder.fill", isExternal: false,
@@ -19,6 +26,7 @@ extension AppState {
             }
         }
         if activeLocation == nil { activeLocationID = locations.first?.id ?? "home" }
+        rebuildIndex()
     }
 
     @MainActor
@@ -150,6 +158,7 @@ extension AppState {
     private func applyDrill(_ result: ScanResult, parentID: String, gen: Int) {
         guard !result.wasCancelled, gen == drillGeneration else { return }
         focusedScans[parentID] = result
+        rebuildIndex()
     }
 
     @MainActor
@@ -167,9 +176,11 @@ extension AppState {
             scanProgress = nil
         }
         LocationAccessService.forget(id: id)
+        ScanStore.remove(locationID: id)
         locations.removeAll(where: { $0.id == id })
         scans.removeValue(forKey: id)
         focusedScans = focusedScans.filter { !(keyIs($0.key, withinLocation: id)) }
+        rebuildIndex()
         if activeLocationID == id { activeLocationID = locations.first?.id ?? "home" }
     }
 
@@ -224,6 +235,15 @@ extension AppState {
         }
     }
 
+    /// Top-level rows to show for a location right now: the completed scan,
+    /// or the growing partial while its first scan runs.
+    @MainActor
+    func visibleTopNodes(for locationID: String) -> [ScanNode] {
+        if let scan = scans[locationID] { return scan.topNodes }
+        if scanningLocationID == locationID, let p = scanProgress { return p.partialTop }
+        return []
+    }
+
     @MainActor
     private func applyScan(_ result: ScanResult, locationID: String, gen: Int) {
         // A cancelled or superseded run keeps the previous usable results —
@@ -232,6 +252,9 @@ extension AppState {
         self.scans[locationID] = result
         // Fresh results invalidate focused drills into the old tree.
         self.focusedScans = self.focusedScans.filter { !(self.keyIs($0.key, withinLocation: locationID)) }
+        self.expandedIDs.removeAll()
+        self.rebuildIndex()
+        ScanStore.save(result)
         if let i = self.locations.firstIndex(where: { $0.id == locationID }) {
             self.locations[i].scannedBytes = result.totalBytes
             self.locations[i].scannedAt = result.finishedAt
@@ -248,7 +271,9 @@ extension AppState {
                 }
             }
         }
-        self.inspectedNodeID = result.topNodes.first?.id
+        // Selection stays with the user: nothing is auto-selected and the
+        // inspector does not open on its own.
+        if let id = self.inspectedNodeID, self.nodeIndex[id] == nil { self.inspectedNodeID = nil }
     }
 
     private static func describe(id: String, url: URL, access: SDLocation.Access) -> SDLocation {

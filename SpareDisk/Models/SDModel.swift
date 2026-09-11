@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - Categories (mutually exclusive for totals, §F04)
 
-enum SDFileCategory: String, CaseIterable, Identifiable, Hashable {
+enum SDFileCategory: String, CaseIterable, Identifiable, Hashable, Codable {
     case documents, media, archives, developer, apps, system
     case other, unknown
 
@@ -38,7 +38,7 @@ enum SDFileCategory: String, CaseIterable, Identifiable, Hashable {
 
 // MARK: - Nodes
 
-struct ScanNode: Identifiable, Hashable {
+struct ScanNode: Identifiable, Hashable, Codable {
     let id: String
     var name: String
     var path: String
@@ -182,6 +182,9 @@ final class AppState {
     var scans: [String: ScanResult] = [:]
     var scanningLocationID: String?
     var scanProgress: ScanProgress?
+    /// Every retained node by id, rebuilt when scans change, so lookups from
+    /// list rows, map cells and the inspector are O(1) instead of a tree walk.
+    var nodeIndex: [String: ScanNode] = [:]
     var scanError: String?
     var notice: String?
     var scanTask: Task<Void, Never>?
@@ -224,6 +227,10 @@ final class AppState {
 
     var inspectedNode: ScanNode? {
         guard let id = inspectedNodeID else { return nil }
+        if let found = nodeIndex[id] { return found }
+        if let queued = reviewItems.first(where: { $0.node.id == id }) { return queued.node }
+        if let partial = scanProgress?.partialTop.first(where: { $0.id == id }) { return partial }
+        guard !hasRealData else { return nil }
         func find(_ nodes: [ScanNode]) -> ScanNode? {
             for node in nodes {
                 if node.id == id { return node }
@@ -231,11 +238,24 @@ final class AppState {
             }
             return nil
         }
-        let realNodes = scans.values.flatMap { $0.topNodes + $0.largestFiles + $0.oldestFiles }
-            + focusedScans.values.flatMap(\.topNodes)
-        if let found = find(realNodes) { return found }
-        if let queued = reviewItems.first(where: { $0.node.id == id }) { return queued.node }
-        return hasRealData ? nil : find(MockData.topLevel + MockData.largeFiles)
+        return find(MockData.topLevel + MockData.largeFiles)
+    }
+
+    /// Rebuild the id index from every retained scan. Called whenever
+    /// `scans` or `focusedScans` change.
+    func rebuildIndex() {
+        var index: [String: ScanNode] = [:]
+        func add(_ nodes: [ScanNode]) {
+            for n in nodes {
+                index[n.id] = n
+                if let kids = n.children { add(kids) }
+            }
+        }
+        for scan in scans.values {
+            add(scan.topNodes); add(scan.largestFiles); add(scan.oldestFiles)
+        }
+        for scan in focusedScans.values { add(scan.topNodes) }
+        nodeIndex = index
     }
 
     var searchPrompt: String {
@@ -248,11 +268,8 @@ final class AppState {
 
     func canReview(_ node: ScanNode) -> Bool {
         guard hasRealData, !node.isCloudPlaceholder, !node.isUnreadable, !cleanupRunning else { return false }
-        func contains(_ nodes: [ScanNode]) -> Bool {
-            nodes.contains { ($0.id == node.id && $0.path == node.path) || contains($0.children ?? []) }
-        }
-        return scans.values.contains { contains($0.topNodes + $0.largestFiles + $0.oldestFiles) }
-            || focusedScans.values.contains { contains($0.topNodes) }
+        guard let known = nodeIndex[node.id] else { return false }
+        return known.path == node.path
     }
 
     func toggleReview(_ node: ScanNode, source: String) {
@@ -265,9 +282,9 @@ final class AppState {
                 node: node,
                 source: source,
                 reason: source,
-                risk: node.isFolder ? "Folder — review all contents before removal"
-                    : node.hardLinkCount > 1 ? "File with \(node.hardLinkCount) links — other links keep its contents after Trash"
-                    : "File — moves to Trash on confirm"
+                risk: node.isFolder ? "Folder. Review all contents before removal."
+                    : node.hardLinkCount > 1 ? "One of \(node.hardLinkCount) hard links. The others keep the contents."
+                    : "File. Moves to Trash on confirm."
             ))
         }
     }
