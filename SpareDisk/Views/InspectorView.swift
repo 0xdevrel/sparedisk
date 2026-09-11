@@ -39,6 +39,7 @@ struct InspectorView: View {
                     .frame(maxWidth: .infinity, minHeight: 200)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Inspector")
     }
 

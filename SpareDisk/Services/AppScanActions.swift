@@ -3,8 +3,36 @@ import Foundation
 // AppState actions for real locations. UI stays on mock data until the user
 // makes an explicit choice — first launch is an invitation, not a demand (§7.6).
 extension AppState {
+    /// `-uiTestFixture`: a disposable folder inside the app container with a
+    /// known layout replaces stored locations, so UI tests see the same
+    /// screen on every machine. Never active without the argument.
+    @MainActor
+    func setUpUITestFixtureIfRequested() -> Bool {
+        guard CommandLine.arguments.contains("-uiTestFixture") else { return false }
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("UITestFixture", isDirectory: true)
+        try? FileManager.default.removeItem(at: base)
+        let root = base.appendingPathComponent("Fixture", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root.appendingPathComponent("Nested"), withIntermediateDirectories: true)
+        try? Data(count: 3_000_000).write(to: root.appendingPathComponent("big.bin"))
+        try? Data(count: 1_000_000).write(to: root.appendingPathComponent("Nested/medium.bin"))
+        try? Data(count: 10_000).write(to: root.appendingPathComponent("small.txt"))
+        guard let grant = try? LocationAccessService.persistGrant(for: root) else { return false }
+        viewMode = .list
+        sortField = .size
+        sortAscending = false
+        showInspector = true
+        sizeBasis = .logical
+        locations = [Self.describe(id: grant.id, url: grant.url, access: .available)]
+        activeLocationID = grant.id
+        rebuildIndex()
+        startScan(locationID: grant.id, url: grant.url)
+        return true
+    }
+
     @MainActor
     func restoreStoredLocations() {
+        if setUpUITestFixtureIfRequested() { return }
         for id in LocationAccessService.orderedIDs() {
             guard !locations.contains(where: { $0.id == id }) else { continue }
             do {

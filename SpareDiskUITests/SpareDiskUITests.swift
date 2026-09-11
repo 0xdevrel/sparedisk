@@ -1,43 +1,38 @@
-//
-//  SpareDiskUITests.swift
-//  SpareDiskUITests
-//
-//  Created by Manish on 12/09/26.
-//
-
 import XCTest
 
+/// End-to-end flow on a disposable fixture: open a location from the
+/// sidebar, select a file, stage it for review, and see it in the queue.
 final class SpareDiskUITests: XCTestCase {
-
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testSelectFileAndAddToReview() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["-uiTestFixture"]
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
-    }
+        // Overview lists the location too; open it through its Open button,
+        // which exists only once the scan has finished.
+        let open = app.buttons["Open"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 20), "fixture location scanned and listed on Overview")
+        open.click()
 
-    @MainActor
-    func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
+        let bigFile = app.staticTexts["big.bin"].firstMatch
+        XCTAssertTrue(bigFile.waitForExistence(timeout: 15), "scanned rows appear")
+        bigFile.click()
+
+        // Inspector shows the selection.
+        XCTAssertTrue(app.staticTexts["3 MB"].firstMatch.waitForExistence(timeout: 5))
+
+        let add = app.buttons["Add to Review"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "inspector offers Add to Review")
+        add.click()
+        XCTAssertTrue(app.buttons["Remove"].firstMatch.waitForExistence(timeout: 5), "inspector flips to Remove")
+
+        app.staticTexts["Review Cleanup"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["big.bin"].firstMatch.waitForExistence(timeout: 5), "queued item listed")
+        XCTAssertTrue(app.buttons["Move 1 Item to Trash…"].firstMatch.exists)
     }
 }

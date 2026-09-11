@@ -13,11 +13,13 @@ nonisolated struct RelatedDataCandidate: Hashable {
 nonisolated enum RelatedDataService {
     /// Bundle identifier from an app bundle's Info.plist. Metadata only.
     static func bundleIdentifier(appPath: String) -> String? {
+        info(appPath: appPath)?["CFBundleIdentifier"] as? String
+    }
+
+    private static func info(appPath: String) -> [String: Any]? {
         let plist = URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Info.plist")
-        guard let data = try? Data(contentsOf: plist),
-              let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
-        else { return nil }
-        return dict["CFBundleIdentifier"] as? String
+        guard let data = try? Data(contentsOf: plist) else { return nil }
+        return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
     }
 
     /// Locations that commonly belong to an app, filtered to those that exist.
@@ -49,9 +51,30 @@ nonisolated enum RelatedDataService {
                 }
             }
         }
-        add("\(lib)/Application Support/\(name)", "Application Support", "Same name as the app")
-        add("\(lib)/Caches/\(name)", "Cache", "Same name as the app")
-        add("\(lib)/Logs/\(name)", "Logs", "Same name as the app")
+        // Names the app calls itself: display name, bundle name, executable
+        // ("Code" for Visual Studio Code), and the vendor folder many apps
+        // use (Google/Chrome, Mozilla/Firefox).
+        var names = [name]
+        let plist = info(appPath: appPath)
+        for key in ["CFBundleName", "CFBundleDisplayName", "CFBundleExecutable"] {
+            if let v = plist?[key] as? String, !v.isEmpty, !names.contains(v) { names.append(v) }
+        }
+        for n in names {
+            add("\(lib)/Application Support/\(n)", "Application Support", "Same name as the app")
+            add("\(lib)/Caches/\(n)", "Cache", "Same name as the app")
+            add("\(lib)/Logs/\(n)", "Logs", "Same name as the app")
+        }
+        if let id = bundleIdentifier(appPath: appPath) {
+            let parts = id.split(separator: ".")
+            if parts.count >= 3 {
+                let vendor = String(parts[1]).capitalized
+                let product = String(parts[2])
+                for n in [product] + names {
+                    add("\(lib)/Application Support/\(vendor)/\(n)", "Application Support", "Vendor folder from \(id)")
+                    add("\(lib)/Caches/\(vendor)/\(n)", "Cache", "Vendor folder from \(id)")
+                }
+            }
+        }
         return out
     }
 }

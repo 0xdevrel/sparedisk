@@ -72,10 +72,19 @@ struct BrowseView: View {
                     if searching {
                         Text("\(nodes.count) matching, \(SDFormat.bytesString(nodes.reduce(0) { $0 + app.bytes($1) }))")
                     }
-                    if app.sizeBasis == .onDisk {
-                        Text("Sizes on disk").foregroundStyle(.tertiary)
-                    }
                 } trailing: {
+                    Menu {
+                        Picker("Size Basis", selection: $app.sizeBasis) {
+                            Text("Logical Size").tag(SDSizeBasis.logical)
+                            Text("Size on Disk").tag(SDSizeBasis.onDisk)
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        Text(app.sizeBasis == .logical ? "Logical" : "On Disk")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Which size the list, map and totals show")
                     SearchField(text: $app.searchText, prompt: "Search \(location?.name ?? "")")
                 }
             }
@@ -285,6 +294,5 @@ struct FileRow: View {
         .frame(height: showPath ? SDTheme.rowHeight + 6 : SDTheme.rowHeight)
         .contentShape(Rectangle())
         .contextMenu { NodeContextMenu(node: node, source: "Browse") }
-        .onDrag { NSItemProvider(object: URL(fileURLWithPath: node.path) as NSURL) }
     }
 }

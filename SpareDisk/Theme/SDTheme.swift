@@ -76,22 +76,44 @@ enum SDTheme {
         (0.50, 0.58, 0.70), // slate
     ]
 
-    static func hue(_ index: Int, scheme: ColorScheme) -> Color {
+    static var hueCount: Int { hues.count }
+
+    /// Raw hue components for an appearance. Dark mode deepens the hue so
+    /// white label text clears WCAG AA on every cell (checked by a test).
+    static func hueComponents(_ index: Int, scheme: ColorScheme) -> (r: Double, g: Double, b: Double) {
         let (r, g, b) = hues[((index % hues.count) + hues.count) % hues.count]
-        if scheme == .dark {
-            return Color(red: r * 0.78, green: g * 0.78, blue: b * 0.78)
+        let k = scheme == .dark ? 0.62 : 1.0
+        return (r * k, g * k, b * k)
+    }
+
+    static func hue(_ index: Int, scheme: ColorScheme) -> Color {
+        let c = hueComponents(index, scheme: scheme)
+        return Color(red: c.r, green: c.g, blue: c.b)
+    }
+
+    /// Opacity of a map fill over the window background.
+    static func mapFillOpacity(scheme: ColorScheme, emphasized: Bool) -> Double {
+        switch scheme {
+        case .dark: emphasized ? 1.0 : 0.85
+        default: emphasized ? 0.62 : 0.42
         }
-        return Color(red: r, green: g, blue: b)
     }
 
     /// Fill for a top-level map cell: a solid, appearance-tuned tint that
-    /// keeps white or black text legible.
+    /// keeps the label text legible.
     static func mapFill(hue index: Int, scheme: ColorScheme, emphasized: Bool) -> Color {
-        let base = hue(index, scheme: scheme)
-        switch scheme {
-        case .dark: return base.opacity(emphasized ? 1.0 : 0.82)
-        default: return base.opacity(emphasized ? 0.62 : 0.42)
-        }
+        hue(index, scheme: scheme).opacity(mapFillOpacity(scheme: scheme, emphasized: emphasized))
+    }
+
+    /// WCAG relative luminance and contrast ratio, for the palette test.
+    static func luminance(_ c: (r: Double, g: Double, b: Double)) -> Double {
+        func lin(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+    }
+
+    static func contrast(_ a: (r: Double, g: Double, b: Double), _ b: (r: Double, g: Double, b: Double)) -> Double {
+        let la = luminance(a), lb = luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
     static let rowHeight: CGFloat = 34

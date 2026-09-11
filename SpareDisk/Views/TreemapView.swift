@@ -296,7 +296,7 @@ struct TreemapView: View {
                 Text(app.hasDiskHint(node)
                      ? "\(SDFormat.bytesString(node.logicalBytes)), \(SDFormat.bytesString(node.allocatedBytes ?? 0)) on disk"
                      : SDFormat.bytesString(app.bytes(node)))
-                    .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.system(size: 11).monospacedDigit()).opacity(0.85).lineLimit(1)
             case .nameOnly:
                 Text(node.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
             case .sizeOnly:
