@@ -123,6 +123,9 @@ struct InspectorView: View {
             if node.ownedByOthers {
                 GridRow { Text("Owner").foregroundStyle(.secondary); Text("Another user or the system") }
             }
+            if app.isRunningApp(node) {
+                GridRow { Text("Status").foregroundStyle(.secondary); Text("Running") }
+            }
             if node.isUnreadable {
                 GridRow { Text("Status").foregroundStyle(.secondary); Text("Could not be read") }
             }

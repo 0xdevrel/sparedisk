@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -427,8 +428,16 @@ final class AppState {
     }
 
     /// Why an item cannot be staged, or nil when it can.
+    /// Bundle paths of running applications, refreshed on demand.
+    func isRunningApp(_ node: ScanNode) -> Bool {
+        guard node.isPackage, node.name.hasSuffix(".app") else { return false }
+        let path = URL(fileURLWithPath: node.path).standardizedFileURL.path
+        return NSWorkspace.shared.runningApplications.contains { $0.bundleURL?.standardizedFileURL.path == path }
+    }
+
     func reviewBlocker(_ node: ScanNode) -> String? {
         if node.isCloudPlaceholder { return "Not downloaded. Manage it in Finder." }
+        if isRunningApp(node) { return "This app is running. Quit it before moving it." }
         if node.ownedByOthers { return "Owned by another user or the system. Finder can move it with an administrator password." }
         if node.isUnreadable { return "Could not be read." }
         return nil
