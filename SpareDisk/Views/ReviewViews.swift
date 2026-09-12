@@ -19,7 +19,7 @@ struct ReviewQueueView: View {
                 if app.cleanupRunning {
                     Button("Cancel") { app.cancelCleanup() }
                 } else if !app.reviewItems.isEmpty {
-                    Button(planCount == 1 ? "Move 1 Item to Trash…" : "Move \(planCount) Items to Trash…") { confirming = true }
+                    Button(planCount == 1 ? "Move 1 Item to Trash" : "Move \(planCount) Items to Trash") { confirming = true }
                         .buttonStyle(.borderedProminent)
                         .help("Each item is checked again before it moves")
                 }
@@ -28,7 +28,7 @@ struct ReviewQueueView: View {
             if app.cleanupRunning {
                 VStack(spacing: 8) {
                     ProgressView()
-                    Text("Moving to Trash… \(app.cleanupCurrent ?? "")")
+                    Text("Moving to Trash \(app.cleanupCurrent ?? "")")
                         .font(SDTheme.Font.body)
                     Text("Each item is checked again first. Cancel stops between items; finished moves stay in the Trash.")
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
@@ -152,7 +152,7 @@ struct StatusBarView: View {
                 Button("Cancel") { app.cancelScan() }.buttonStyle(.link).font(SDTheme.Font.secondary)
             } else if app.cleanupRunning {
                 ProgressView().controlSize(.small)
-                Text("Moving to Trash… \(app.cleanupCurrent ?? "")").font(SDTheme.Font.secondary)
+                Text("Moving to Trash \(app.cleanupCurrent ?? "")").font(SDTheme.Font.secondary)
             } else if let s = app.lastCleanupSummary {
                 Image(systemName: "trash.fill").foregroundStyle(.secondary)
                 Text(s).font(SDTheme.Font.secondary)

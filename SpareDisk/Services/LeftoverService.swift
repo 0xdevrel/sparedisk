@@ -92,8 +92,25 @@ nonisolated enum LeftoverService {
     /// The user's real home folder. Inside the sandbox NSHomeDirectory()
     /// is the app container, so the account record is asked instead.
     static var realHome: String {
+        if let override = homeOverride { return override }
         if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir { return String(cString: dir) }
         return NSHomeDirectory()
+    }
+
+    /// Set by the screenshot demo so its folder stands in for the home,
+    /// letting related data and leftovers come from neutral fixtures.
+    nonisolated(unsafe) static var homeOverride: String?
+
+    /// Bundle identifiers of app bundles directly inside a folder, read
+    /// from their Info.plist. Covers a user-level Applications folder that
+    /// LaunchServices may not have registered yet.
+    static func bundleIDs(inApplicationsFolder folder: String) -> Set<String> {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return [] }
+        var out = Set<String>()
+        for n in names where n.hasSuffix(".app") {
+            if let id = RelatedDataService.bundleIdentifier(appPath: folder + "/" + n) { out.insert(id) }
+        }
+        return out
     }
 
     /// Every entry under the Library folders whose name is a bundle

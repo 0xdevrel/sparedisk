@@ -118,11 +118,12 @@ struct ContentView: View {
         }
         .alert(app.directTrashItems.count == 1 ? "Move “\(app.directTrashItems[0].node.name)” to the Trash?"
                : "Move \(app.directTrashItems.count) items to the Trash?",
-               isPresented: Binding(get: { !app.directTrashItems.isEmpty }, set: { if !$0 { app.directTrashItems = [] } })) {
+               isPresented: Binding(get: { !app.directTrashItems.isEmpty }, set: { if !$0 { app.directTrashItems = []; app.directTrashSkipped = [] } })) {
             Button("Move to Trash", role: .destructive) { app.confirmDirectTrash() }
-            Button("Cancel", role: .cancel) { app.directTrashItems = [] }
+            Button("Cancel", role: .cancel) { app.directTrashItems = []; app.directTrashSkipped = [] }
         } message: {
-            Text("\(SDFormat.bytesString(app.directTrashItems.reduce(0) { $0 + $1.node.logicalBytes })). Each item is checked again first. Space is freed when you empty the Trash.")
+            Text("\(SDFormat.bytesString(app.directTrashItems.reduce(0) { $0 + $1.node.logicalBytes })). Each item is checked again first. Space is freed when you empty the Trash." +
+                 (app.directTrashSkipped.isEmpty ? "" : " \(app.directTrashSkipped.count) other items cannot be moved and will be listed in the report."))
         }
         .sheet(isPresented: $app.showAbout) { AboutView() }
         .sheet(isPresented: $app.showScanIssues) { ScanIssuesView() }

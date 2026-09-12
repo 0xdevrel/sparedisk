@@ -428,6 +428,7 @@ final class AppState {
     var lastCleanupSummary: String?
     /// Items awaiting confirmation for a direct move to the Trash.
     var directTrashItems: [ReviewItem] = []
+    var directTrashSkipped: [CleanupResult] = []
 
     // MARK: - Duplicate detection state (§F07, on demand only)
     var duplicateGroups: [DuplicateGroup] = []
@@ -541,6 +542,11 @@ final class AppState {
     /// began may have been measured stale; the descendant check treats it
     /// as changed. Falls back to now for items that were never scanned.
     func verificationTime(for node: ScanNode) -> Date {
+        // Leftovers are measured again independently of a potentially old
+        // Home scan. Use that measurement only for the exact node snapshot.
+        if let scan = focusedScans[Self.leftoverKey], scan.topNodes.contains(node) {
+            return scan.startedAt
+        }
         let covering = (Array(scans.values) + Array(focusedScans.values)).filter { r in
             let root = r.locationID.split(separator: "#").last.map(String.init) ?? r.locationID
             return node.path == root || CleanupService.isWithin(node.path, root: root)

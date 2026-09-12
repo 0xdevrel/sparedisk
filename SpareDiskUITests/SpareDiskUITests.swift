@@ -33,7 +33,7 @@ final class SpareDiskUITests: XCTestCase {
 
         app.staticTexts["Review Cleanup"].firstMatch.click()
         XCTAssertTrue(app.staticTexts["big.bin"].firstMatch.waitForExistence(timeout: 5), "queued item listed")
-        XCTAssertTrue(app.buttons["Move 1 Item to Trash…"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["Move 1 Item to Trash"].firstMatch.exists)
     }
     @MainActor
     func testMapKeyboardSelectionReplacesClickedCell() throws {
@@ -103,14 +103,14 @@ final class SpareDiskUITests: XCTestCase {
         app.launch()
         let scan = app.windows.firstMatch.buttons["overview-scan"]
         XCTAssertTrue(scan.waitForExistence(timeout: 10))
-        XCTAssertEqual(scan.label, "Scan My Mac…")
+        XCTAssertEqual(scan.label, "Scan My Mac")
         XCTAssertFalse(app.windows.firstMatch.buttons["overview-cancel-scans"].exists)
         scan.click()
         let cancel = app.windows.buttons["Cancel"].firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 10))
         cancel.click()
         XCTAssertTrue(scan.waitForExistence(timeout: 10))
-        XCTAssertEqual(scan.label, "Scan My Mac…")
+        XCTAssertEqual(scan.label, "Scan My Mac")
         XCTAssertFalse(app.windows.firstMatch.buttons["overview-cancel-scans"].exists)
     }
 

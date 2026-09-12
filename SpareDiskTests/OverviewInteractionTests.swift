@@ -11,7 +11,7 @@ struct OverviewInteractionTests {
 
     @Test @MainActor func overviewLabelsFollowScanCoverage() {
         let app = AppState()
-        #expect(app.overviewScanTitle == "Scan My Mac…")
+        #expect(app.overviewScanTitle == "Scan My Mac")
         app.locations = [location("/test")]
         #expect(app.overviewScanTitle == "Scan")
         app.scans["/test"] = ScanResult(locationID: "/test", rootName: "Test", totalBytes: 0, itemCount: 0,

@@ -12,20 +12,32 @@ extension AppState {
 
     @MainActor
     func requestTrash(_ nodes: [ScanNode]) {
+        guard !cleanupRunning else { return }
+        directTrashSkipped = nodes.filter { !canReview($0) }.map { node in
+            CleanupResult(id: node.id, name: node.name, path: node.path, bytes: node.logicalBytes,
+                          outcome: .blocked(reviewBlocker(node) ?? "This item is no longer in the current scan. Find it again before moving it."))
+        }
         let items = nodes.filter { canReview($0) }.map {
             ReviewItem(id: $0.id, node: $0, source: "Direct", reason: "Direct", risk: $0.isFolder ? "Folder" : "File",
                        verifiedAt: verificationTime(for: $0))
         }
-        guard !items.isEmpty else { return }
+        guard !items.isEmpty else {
+            cleanupResults = directTrashSkipped
+            directTrashSkipped = []
+            lastCleanupSummary = cleanupResults.isEmpty ? nil : "Nothing was moved. See the report for each item's reason."
+            return
+        }
         directTrashItems = items
     }
 
     @MainActor
     func confirmDirectTrash() {
         let items = directTrashItems
+        let skipped = directTrashSkipped
         directTrashItems = []
+        directTrashSkipped = []
         guard !items.isEmpty else { return }
-        cleanupTask = Task { await runCleanup(items: items) }
+        cleanupTask = Task { await runCleanup(items: items, preflightResults: skipped) }
     }
 
     /// Stage every reviewable node that is not already staged.
@@ -35,18 +47,18 @@ extension AppState {
     }
 
     @MainActor
-    func runCleanup(items overridePlan: [ReviewItem]? = nil) async {
+    func runCleanup(items overridePlan: [ReviewItem]? = nil, preflightResults: [CleanupResult] = []) async {
         cleanupResults = []
         lastCleanupSummary = nil
         // A verified group's last remaining copy is never staged (F07).
         let (protectedPlan, protectedSkips) = DuplicateService.protectKeepers(
             plan: overridePlan.map(CleanupService.normalize) ?? reviewPlan, groups: duplicateGroups, keepers: duplicateKeepers)
         let (plan, keeperGone) = DuplicateService.requireKeepers(plan: protectedPlan, groups: duplicateGroups, keepers: duplicateKeepers)
-        let keeperSkips = protectedSkips + keeperGone
+        let keeperSkips = preflightResults + protectedSkips + keeperGone
         guard !plan.isEmpty else {
             cleanupResults = keeperSkips
             lastCleanupSummary = keeperSkips.isEmpty ? nil
-                : "Nothing moved. Every queued item is the last copy of its contents."
+                : "Nothing moved. See the report for each item’s reason."
             return
         }
 
@@ -132,7 +144,7 @@ extension AppState {
         let movedBytes = moved.reduce(0) { $0 + $1.bytes }
         let stuck = results.count - moved.count
         if moved.isEmpty {
-            lastCleanupSummary = "Nothing was moved. \(stuck) item\(stuck == 1 ? "" : "s") need\(stuck == 1 ? "s" : "") attention below."
+            lastCleanupSummary = "Nothing was moved. \(stuck) item\(stuck == 1 ? "" : "s") need\(stuck == 1 ? "s" : "") attention. View the report for details."
         } else if stuck == 0 {
             lastCleanupSummary = "Moved \(moved.count) item\(moved.count == 1 ? "" : "s") (\(SDFormat.bytesString(movedBytes))) to Trash."
         } else {
@@ -143,6 +155,7 @@ extension AppState {
         reviewItems = CleanupService.remaining(reviewItems, afterMoving: moved)
         // Moved leftovers leave their groups; an emptied group disappears.
         let movedPaths = moved.map { CleanupService.standardized($0.path) }
+        let leftoverCountBefore = leftoverGroups.reduce(0) { $0 + $1.items.count }
         leftoverGroups = leftoverGroups.compactMap { g in
             var g = g
             g.items.removeAll { item in
@@ -150,6 +163,10 @@ extension AppState {
                 return movedPaths.contains { $0 == p || CleanupService.isWithin(p, root: $0) }
             }
             return g.items.isEmpty ? nil : g
+        }
+        if leftoverGroups.reduce(0, { $0 + $1.items.count }) != leftoverCountBefore {
+            leftoverNotice = leftoverGroups.isEmpty ? "All listed leftovers were moved to Trash."
+                : "\(leftoverGroups.count) apps still have listed data, \(SDFormat.bytesString(leftoverGroups.reduce(0) { $0 + $1.bytes })) remaining."
         }
     }
 

@@ -47,6 +47,7 @@ extension AppState {
         let url = URL(fileURLWithPath: args[i + 1])
         LocationAccessService.forget(id: url.path)
         let grant = LocationAccessService.grantTransient(url)
+        LeftoverService.homeOverride = url.path
         locations = [Self.describe(id: grant.id, url: grant.url, access: .available)]
         activeLocationID = grant.id
         rebuildIndex()
@@ -133,7 +134,7 @@ extension AppState {
     }
 
     var overviewScanTitle: String {
-        if locations.isEmpty { return "Scan My Mac…" }
+        if locations.isEmpty { return "Scan My Mac" }
         return locations.allSatisfy { scans[$0.id] != nil } ? "Rescan" : "Scan"
     }
 

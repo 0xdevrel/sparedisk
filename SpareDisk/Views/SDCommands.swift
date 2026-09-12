@@ -42,7 +42,7 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(!app.selectedNodes.contains { app.canReview($0) })
-            Button(app.selectedNodes.count > 1 ? "Move \(app.selectedNodes.count) Items to Trash…" : "Move to Trash…") {
+            Button(app.selectedNodes.count > 1 ? "Move \(app.selectedNodes.count) Items to Trash" : "Move to Trash") {
                 app.requestTrash(app.selectedNodes)
             }
             .keyboardShortcut(.delete, modifiers: .command)

@@ -34,16 +34,22 @@ extension AppState {
             defer { leftoverTask = nil; leftoverRunning = false }
             let accessing = LocationAccessService.beginAccess(scope)
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+            let startedAt = Date()
             let all = await Task.detached(priority: .userInitiated) { LeftoverService.entries(home: homePath) }.value
-            let orphans = LeftoverService.orphans(all) { self.isAppInstalled($0) }
+            let localApps = await Task.detached(priority: .userInitiated) {
+                LeftoverService.bundleIDs(inApplicationsFolder: homePath + "/Applications")
+            }.value
+            let orphans = LeftoverService.orphans(all) { localApps.contains($0) || self.isAppInstalled($0) }
             var nodes: [ScanNode] = []
             var kinds: [String: String] = [:]
+            var bundleIDs: [String: String] = [:]
             for e in orphans {
                 if Task.isCancelled { return }
                 guard let st = ScanEngine.lstat(path: e.path) else { continue }
                 let url = URL(fileURLWithPath: e.path)
                 let id = "\(home.id)#\(e.path)"
                 kinds[e.path] = e.kind
+                bundleIDs[id] = e.bundleID
                 if st.isDir {
                     let result = await Task.detached(priority: .utility) {
                         await ScanEngine.scan(locationID: id, rootName: url.lastPathComponent, root: url) { _ in }
@@ -65,7 +71,11 @@ extension AppState {
                 }
             }
             var byID: [String: [ScanNode]] = [:]
-            for (e, n) in zip(orphans.filter { ScanEngine.lstat(path: $0.path) != nil }, nodes) { byID[e.bundleID, default: []].append(n) }
+            // Keep each measured node with its original owner. Re-enumerating
+            // paths here can shift a zip when an entry disappears mid-scan.
+            for node in nodes {
+                if let bundleID = bundleIDs[node.id] { byID[bundleID, default: []].append(node) }
+            }
             let groups = byID.map { LeftoverGroup(bundleID: $0.key, items: $0.value.sorted { $0.logicalBytes > $1.logicalBytes }) }
                 .sorted { $0.bytes > $1.bytes }
             self.leftoverKinds = kinds
@@ -75,7 +85,7 @@ extension AppState {
                 totalBytes: nodes.reduce(0) { $0 + $1.logicalBytes },
                 totalAllocated: nodes.reduce(0) { $0 + ($1.allocatedBytes ?? 0) },
                 itemCount: nodes.count, topNodes: nodes, issues: [],
-                startedAt: Date(), finishedAt: Date(), wasCancelled: false)
+                startedAt: startedAt, finishedAt: Date(), wasCancelled: false)
             self.rebuildIndex()
             self.leftoverNotice = groups.isEmpty
                 ? "No leftovers found. Every identifier under your Library belongs to an installed or running app."

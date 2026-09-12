@@ -40,14 +40,22 @@ struct LeftoversView: View {
             } trailing: {
                 SearchField(text: $app.searchText, prompt: "Search leftovers")
                 if !app.leftoverGroups.isEmpty {
-                    let all = filtered.flatMap(\.items).filter { app.canReview($0) }
-                    Button("Move All to Trash…") { app.requestTrash(all) }
-                        .disabled(all.isEmpty || app.cleanupRunning)
+                    let all = filtered.flatMap(\.items)
+                    Button(app.searchText.isEmpty ? "Move All to Trash" : "Move Results to Trash") { app.requestTrash(all) }
+                        .disabled(all.isEmpty || app.cleanupRunning || app.leftoverRunning)
                         .help("Checked again, then moved to the Trash after you confirm")
                 }
                 Button(app.leftoverGroups.isEmpty ? "Find Leftovers" : "Find Again") { app.findLeftovers() }
                     .buttonStyle(.borderedProminent)
                     .disabled(app.homeLocation == nil || app.leftoverRunning)
+            }
+            if let summary = app.lastCleanupSummary, !app.cleanupResults.isEmpty {
+                HStack {
+                    Text(summary).font(SDTheme.Font.secondary)
+                    Spacer()
+                    Button("View Report") { app.selection = .review }.buttonStyle(.link)
+                }
+                .padding(.horizontal, SDTheme.Space.md).padding(.vertical, 8)
             }
             if app.leftoverGroups.isEmpty {
                 VStack(spacing: 8) {
@@ -73,6 +81,10 @@ struct LeftoversView: View {
                                         Text(n.name).font(SDTheme.Font.body).lineLimit(1)
                                         Text("\(app.leftoverKinds[n.path] ?? "Item"), \(app.displayPath(n)), modified \(SDFormat.date(n.modified))")
                                             .font(SDTheme.Font.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                        if let reason = app.cleanupResults.last(where: { $0.path == n.path })?.message ?? app.reviewBlocker(n) {
+                                            Text(reason).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
                                     }
                                     if app.isQueued(n.id) {
                                         Image(systemName: "tray.full").foregroundStyle(Color.accentColor).help("In Review")
@@ -92,10 +104,10 @@ struct LeftoversView: View {
                                 Spacer()
                                 Text("\(g.items.count) \(g.items.count == 1 ? "item" : "items"), \(SDFormat.bytesString(g.bytes))")
                                     .font(SDTheme.Font.secondary.monospacedDigit()).foregroundStyle(.secondary)
-                                Button("Move to Trash…") { app.requestTrash(g.items) }
+                                Button("Move to Trash") { app.requestTrash(g.items) }
                                     .buttonStyle(.link).font(SDTheme.Font.secondary)
                                     .help("Checked again, then moved to the Trash after you confirm")
-                                    .disabled(!g.items.contains { app.canReview($0) } || app.cleanupRunning)
+                                    .disabled(app.cleanupRunning || app.leftoverRunning)
                             }
                         }
                     }
