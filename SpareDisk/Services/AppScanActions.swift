@@ -17,7 +17,10 @@ extension AppState {
         try? Data(count: 3_000_000).write(to: root.appendingPathComponent("big.bin"))
         try? Data(count: 1_000_000).write(to: root.appendingPathComponent("Nested/medium.bin"))
         try? Data(count: 10_000).write(to: root.appendingPathComponent("small.txt"))
-        guard let grant = try? LocationAccessService.persistGrant(for: root) else { return false }
+        // The container is always readable inside the sandbox, so no bookmark
+        // is needed and nothing is written to the real location list.
+        LocationAccessService.forget(id: root.path)
+        let grant = GrantedLocation(id: root.path, displayName: root.lastPathComponent, url: root, bookmark: Data())
         viewMode = .list
         sortField = .size
         sortAscending = false
@@ -37,7 +40,8 @@ extension AppState {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "-demoPath"), i + 1 < args.count else { return false }
         let url = URL(fileURLWithPath: args[i + 1])
-        guard let grant = try? LocationAccessService.persistGrant(for: url) else { return false }
+        LocationAccessService.forget(id: url.path)
+        let grant = GrantedLocation(id: url.path, displayName: url.lastPathComponent, url: url, bookmark: Data())
         locations = [Self.describe(id: grant.id, url: grant.url, access: .available)]
         activeLocationID = grant.id
         rebuildIndex()

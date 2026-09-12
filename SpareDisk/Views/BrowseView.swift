@@ -45,12 +45,14 @@ struct BrowseView: View {
             if scan != nil || scanningHere || !app.hasRealData {
                 ScreenBar {
                     Text(statusLine)
+                        .lineLimit(1).truncationMode(.tail)
                         .help("Sizes are logical file sizes. On-disk allocation is shown alongside where it differs.")
                     if let scan, app.hasRealData, !scan.issues.isEmpty {
                         Button {
                             app.showScanIssues = true
                         } label: {
                             Label("\(scan.issues.count) unreadable", systemImage: "exclamationmark.triangle.fill")
+                                .lineLimit(1)
                         }
                         .buttonStyle(.plain).foregroundStyle(.orange)
                         .help("Some folders could not be read")
@@ -59,9 +61,14 @@ struct BrowseView: View {
                         Button {
                             app.showChanges = true
                         } label: {
-                            Label(diff.bytesDelta == 0 ? "No change since last scan"
-                                  : "\(diff.bytesDelta > 0 ? "+" : "−")\(SDFormat.bytesString(abs(diff.bytesDelta))) since last scan",
-                                  systemImage: diff.bytesDelta > 0 ? "arrow.up.right" : diff.bytesDelta < 0 ? "arrow.down.right" : "equal")
+                            let delta = diff.bytesDelta == 0 ? "No change"
+                                : "\(diff.bytesDelta > 0 ? "+" : "−")\(SDFormat.bytesString(abs(diff.bytesDelta)))"
+                            let symbol = diff.bytesDelta > 0 ? "arrow.up.right" : diff.bytesDelta < 0 ? "arrow.down.right" : "equal"
+                            // Full wording when there is room, the figure alone when the bar is narrow.
+                            ViewThatFits(in: .horizontal) {
+                                Label("\(delta) since last scan", systemImage: symbol).lineLimit(1)
+                                Label(delta, systemImage: symbol).lineLimit(1)
+                            }
                         }
                         .buttonStyle(.plain).foregroundStyle(Color.accentColor)
                         .help("What changed since the previous scan")
@@ -71,8 +78,22 @@ struct BrowseView: View {
                     }
                     if searching {
                         Text("\(nodes.count) matching, \(SDFormat.bytesString(nodes.reduce(0) { $0 + app.bytes($1) }))")
+                            .lineLimit(1)
                     }
                 } trailing: {
+                    if app.viewMode != .list && !searching {
+                        Menu {
+                            Picker("Color", selection: $app.mapColor) {
+                                ForEach(SDMapColor.allCases, id: \.self) { Text($0.label).tag($0) }
+                            }
+                            .pickerStyle(.inline)
+                        } label: {
+                            Text(app.mapColor.label)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help("What the colors mean")
+                    }
                     Menu {
                         Picker("Size Basis", selection: $app.sizeBasis) {
                             Text("Logical Size").tag(SDSizeBasis.logical)
@@ -99,6 +120,8 @@ struct BrowseView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if app.viewMode == .list || searching {
                 FileListView(nodes: nodes, total: total, flat: searching)
+            } else if app.viewMode == .sunburst {
+                SunburstView(nodes: nodes)
             } else {
                 TreemapView(nodes: nodes)
             }

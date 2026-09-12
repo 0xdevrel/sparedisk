@@ -162,6 +162,19 @@ enum SDSidebarSelection: Hashable {
 enum SDViewMode: String, CaseIterable {
     case list = "List"
     case map = "Map"
+    case sunburst = "Sunburst"
+}
+
+/// What the map's colors mean.
+enum SDMapColor: String, CaseIterable {
+    case folder, type, age
+    var label: String {
+        switch self {
+        case .folder: "By Folder"
+        case .type: "By Type"
+        case .age: "By Age"
+        }
+    }
 }
 
 enum SDSortField: String, CaseIterable {
@@ -222,6 +235,9 @@ final class AppState {
     }
     var sortAscending: Bool = UserDefaults.standard.object(forKey: "sortAscending") as? Bool ?? false {
         didSet { UserDefaults.standard.set(sortAscending, forKey: "sortAscending") }
+    }
+    var mapColor: SDMapColor = SDMapColor(rawValue: UserDefaults.standard.string(forKey: "mapColor") ?? "") ?? .folder {
+        didSet { UserDefaults.standard.set(mapColor.rawValue, forKey: "mapColor") }
     }
     var sizeBasis: SDSizeBasis = SDSizeBasis(rawValue: UserDefaults.standard.string(forKey: "sizeBasis") ?? "") ?? .logical {
         didSet { UserDefaults.standard.set(sizeBasis.rawValue, forKey: "sizeBasis") }

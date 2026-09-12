@@ -37,6 +37,8 @@ nonisolated struct ScanResult: Hashable, Codable {
     /// files and clones make this smaller than the logical total, which is
     /// why a folder can "contain" more than its volume holds.
     var totalAllocated: Int64 = 0
+    /// Logical bytes of files by category, keyed by SDFileCategory rawValue.
+    var categoryBytes: [String: Int64] = [:]
     var itemCount: Int
     var topNodes: [ScanNode]
     var largestFiles: [ScanNode] = []
@@ -48,11 +50,13 @@ nonisolated struct ScanResult: Hashable, Codable {
 
     var elapsed: TimeInterval { finishedAt.timeIntervalSince(startedAt) }
 
-    init(locationID: String, rootName: String, totalBytes: Int64, totalAllocated: Int64 = 0, itemCount: Int,
+    init(locationID: String, rootName: String, totalBytes: Int64, totalAllocated: Int64 = 0,
+         categoryBytes: [String: Int64] = [:], itemCount: Int,
          topNodes: [ScanNode], largestFiles: [ScanNode] = [], oldestFiles: [ScanNode] = [], issues: [ScanIssue],
          startedAt: Date, finishedAt: Date, wasCancelled: Bool) {
         self.locationID = locationID; self.rootName = rootName; self.totalBytes = totalBytes
-        self.totalAllocated = totalAllocated; self.itemCount = itemCount; self.topNodes = topNodes
+        self.totalAllocated = totalAllocated; self.categoryBytes = categoryBytes
+        self.itemCount = itemCount; self.topNodes = topNodes
         self.largestFiles = largestFiles; self.oldestFiles = oldestFiles; self.issues = issues
         self.startedAt = startedAt; self.finishedAt = finishedAt; self.wasCancelled = wasCancelled
     }
@@ -64,6 +68,7 @@ nonisolated struct ScanResult: Hashable, Codable {
         rootName = try c.decode(String.self, forKey: .rootName)
         totalBytes = try c.decode(Int64.self, forKey: .totalBytes)
         totalAllocated = try c.decodeIfPresent(Int64.self, forKey: .totalAllocated) ?? 0
+        categoryBytes = try c.decodeIfPresent([String: Int64].self, forKey: .categoryBytes) ?? [:]
         itemCount = try c.decode(Int.self, forKey: .itemCount)
         topNodes = try c.decode([ScanNode].self, forKey: .topNodes)
         largestFiles = try c.decodeIfPresent([ScanNode].self, forKey: .largestFiles) ?? []
@@ -115,6 +120,7 @@ nonisolated enum ScanEngine {
         }
         return ScanResult(locationID: locationID, rootName: rootName, totalBytes: state.total,
                           totalAllocated: state.totalAlloc,
+                          categoryBytes: Dictionary(uniqueKeysWithValues: state.byCategory.map { ($0.key.rawValue, $0.value) }),
                           itemCount: state.count,
                           topNodes: buildTree(state: state, locationID: locationID, rootPath: rootPath),
                           largestFiles: state.largest, oldestFiles: state.oldest,
@@ -156,6 +162,8 @@ nonisolated enum ScanEngine {
         var total: Int64 = 0
         var totalAlloc: Int64 = 0
         var count = 0
+        /// Logical bytes of regular files by category.
+        var byCategory: [SDFileCategory: Int64] = [:]
         /// Top-level aggregates by first component.
         var agg: [String: Agg] = [:]
         /// Second-level aggregates by "top/second". Deeper content rolls into
@@ -368,6 +376,9 @@ nonisolated enum ScanEngine {
                 state.totalAlloc += alloc
                 state.count += 1
                 added += 1
+                if st.isRegular, bytes > 0 {
+                    state.byCategory[ScanEngine.category(name: name, ext: ext, isDir: false), default: 0] += bytes
+                }
 
                 if st.isDir {
                     subdirs.append(rel)
@@ -420,6 +431,7 @@ nonisolated enum ScanEngine {
                 for (k, v) in s.sub { if var e = out.sub[k] { e.add(v); out.sub[k] = e } else { out.sub[k] = v } }
                 out.total += s.total
                 out.totalAlloc += s.totalAlloc
+                for (k, v) in s.byCategory { out.byCategory[k, default: 0] += v }
                 out.count += s.count
                 // A link counted by two workers: keep the first, subtract the second.
                 for (id, hit) in s.links {

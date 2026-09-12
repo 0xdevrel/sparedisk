@@ -69,7 +69,7 @@ struct DuplicatesView: View {
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if app.viewMode == .map {
+            } else if app.viewMode != .list {
                 TreemapView(nodes: filteredGroups.flatMap(\.files), rootTitle: "Duplicates")
             } else {
                 List(selection: Binding(get: { app.selectedIDs }, set: { app.selectedIDs = $0 })) {

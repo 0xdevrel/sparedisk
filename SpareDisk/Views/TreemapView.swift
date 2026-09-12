@@ -68,6 +68,7 @@ struct TreemapView: View {
                 .lineLimit(1)
             }
             Spacer()
+            legend.font(.system(size: 11)).foregroundStyle(.secondary)
             Text(SDFormat.bytesString(levelSum))
                 .font(SDTheme.Font.secondary.monospacedDigit()).foregroundStyle(.secondary)
             if !app.mapTrail.isEmpty {
@@ -253,7 +254,7 @@ struct TreemapView: View {
         let nestedByID = Dictionary(uniqueKeysWithValues: nested.map { ($0.node.id, $0) })
 
         return ZStack(alignment: .topLeading) {
-            Rectangle().fill(SDTheme.mapFill(hue: hue, scheme: scheme, emphasized: isHovered || isSelected))
+            Rectangle().fill(fill(for: node, hue: hue, emphasized: isHovered || isSelected))
             if labels != .none {
                 cellLabel(node: node, plan: labels)
                     .padding(.horizontal, 5)
@@ -397,6 +398,18 @@ struct TreemapView: View {
 
     // MARK: - Helpers
 
+    /// Cell fill under the current color mode.
+    private func fill(for node: ScanNode, hue: Int, emphasized: Bool) -> Color {
+        let alpha = SDTheme.mapFillOpacity(scheme: scheme, emphasized: emphasized)
+        switch app.mapColor {
+        case .folder: return SDTheme.mapFill(hue: hue, scheme: scheme, emphasized: emphasized)
+        case .type: return SDTheme.color(for: node.category, scheme: scheme).opacity(alpha)
+        case .age: return SDTheme.ageColor(bucket: SDTheme.ageBucket(for: node.modified), scheme: scheme).opacity(alpha)
+        }
+    }
+
+    private var legend: some View { MapColorLegend() }
+
     private func selected(_ node: ScanNode) -> Bool { app.inspectedNodeID == node.id }
 
     /// Embedded map: jump to the location's full map, focused on the folder.
@@ -422,5 +435,36 @@ struct TreemapView: View {
         app.mapTrail.append(node)
         app.inspectedNodeID = node.id
         app.ensureChildren(node)
+    }
+}
+
+/// Legend for the map color modes shared by the treemap and the sunburst.
+/// Empty in folder mode, where colors only distinguish neighbors.
+struct MapColorLegend: View {
+    @Environment(AppState.self) private var app
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        switch app.mapColor {
+        case .folder: EmptyView()
+        case .type:
+            FlowLayout(spacing: 10, rowSpacing: 2) {
+                ForEach(SDFileCategory.allCases.filter { $0 != .unknown }) { c in
+                    HStack(spacing: 4) {
+                        Circle().fill(SDTheme.color(for: c, scheme: scheme)).frame(width: 8, height: 8)
+                        Text(c.label).lineLimit(1)
+                    }
+                }
+            }
+        case .age:
+            FlowLayout(spacing: 10, rowSpacing: 2) {
+                ForEach(Array(SDTheme.ageBuckets.enumerated()), id: \.offset) { i, b in
+                    HStack(spacing: 4) {
+                        Circle().fill(SDTheme.ageColor(bucket: i, scheme: scheme)).frame(width: 8, height: 8)
+                        Text(b.label).lineLimit(1)
+                    }
+                }
+            }
+        }
     }
 }

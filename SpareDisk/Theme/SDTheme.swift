@@ -116,6 +116,26 @@ enum SDTheme {
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
+    /// Age buckets for the map's By Age coloring, oldest first.
+    static let ageBuckets: [(label: String, years: Double)] = [
+        ("Over 5 years", 5), ("2 to 5 years", 2), ("1 to 2 years", 1), ("6 to 12 months", 0.5), ("Under 6 months", 0),
+    ]
+
+    static func ageBucket(for date: Date?) -> Int {
+        guard let date else { return 0 }
+        let years = Date().timeIntervalSince(date) / (365.25 * 86400)
+        for (i, b) in ageBuckets.enumerated() where years >= b.years { return i }
+        return ageBuckets.count - 1
+    }
+
+    /// Sequential scale: recent files vivid, old files washed toward grey.
+    static func ageColor(bucket: Int, scheme: ColorScheme) -> Color {
+        let t = Double(bucket) / Double(max(ageBuckets.count - 1, 1)) // 0 old … 1 new
+        let grey = scheme == .dark ? (0.42, 0.44, 0.48) : (0.72, 0.74, 0.78)
+        let blue = scheme == .dark ? (0.30, 0.52, 0.86) : (0.36, 0.55, 0.86)
+        return Color(red: grey.0 + (blue.0 - grey.0) * t, green: grey.1 + (blue.1 - grey.1) * t, blue: grey.2 + (blue.2 - grey.2) * t)
+    }
+
     static let rowHeight: CGFloat = 34
     /// Height of the bar that sits under the window toolbar on every screen.
     static let screenBarHeight: CGFloat = 40
@@ -201,7 +221,11 @@ struct ScreenBar<Leading: View, Trailing: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
+                // Leading text truncates before the column asks the window
+                // for more room; controls on the right keep their size.
                 HStack(spacing: 10) { leading }
+                    .frame(minWidth: 0, alignment: .leading)
+                    .layoutPriority(-1)
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 Spacer(minLength: 12)
                 HStack(spacing: 8) { trailing }
@@ -237,9 +261,56 @@ struct SearchField: View {
             }
         }
         .padding(.horizontal, 7)
-        .frame(width: 200, height: 24)
+        .frame(minWidth: 130, idealWidth: 200, maxWidth: 200)
+        .frame(height: 24)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(focused ? Color.accentColor : Color.primary.opacity(0.10), lineWidth: focused ? 1.5 : 1))
         .onKeyPress(.escape) { text = ""; return .handled }
+    }
+}
+
+/// Lays children out left to right and wraps to new rows, so legends and
+/// chip rows never force a minimum width on the window.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 10
+    var rowSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        let rows = arrange(width: width, subviews: subviews)
+        let height = rows.reduce(0) { $0 + $1.height } + rowSpacing * CGFloat(max(0, rows.count - 1))
+        let used = rows.map(\.width).max() ?? 0
+        return CGSize(width: width == .infinity ? used : min(width, max(used, 0)), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: .unspecified)
+                x += size.width + spacing
+            }
+            y += row.height + rowSpacing
+        }
+    }
+
+    private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = [Row()]
+        for (i, view) in subviews.enumerated() {
+            let size = view.sizeThatFits(.unspecified)
+            var row = rows[rows.count - 1]
+            let next = row.indices.isEmpty ? size.width : row.width + spacing + size.width
+            if next > width, !row.indices.isEmpty {
+                rows.append(Row(indices: [i], width: size.width, height: size.height))
+            } else {
+                row.indices.append(i); row.width = next; row.height = max(row.height, size.height)
+                rows[rows.count - 1] = row
+            }
+        }
+        return rows
     }
 }

@@ -24,6 +24,7 @@ struct OverviewView: View {
                 if let err = app.scanError { IssueBanner(text: err) }
                 if app.hasRealData {
                     volumeSection
+                    if !typeTotals.isEmpty { typesSection }
                     locationsSection
                     if let f = featured, let scan = app.scans[f.id] { mapSection(location: f, scan: scan) }
                     if !biggestFiles.isEmpty { filesSection }
@@ -83,12 +84,14 @@ struct OverviewView: View {
                 }
                 SegmentedCapacityBar(segments: segments(capacity: v.capacityBytes, used: used), capacity: v.capacityBytes)
                     .frame(height: 14)
-                HStack(spacing: 14) {
-                    ForEach(Array(scanned.enumerated()), id: \.element.id) { i, loc in
-                        legend(color: SDTheme.hue(i, scheme: scheme), name: loc.name)
+                HStack(alignment: .top, spacing: 14) {
+                    FlowLayout(spacing: 14, rowSpacing: 4) {
+                        ForEach(Array(scanned.enumerated()), id: \.element.id) { i, loc in
+                            legend(color: SDTheme.hue(i, scheme: scheme), name: loc.name)
+                        }
+                        legend(color: Color.primary.opacity(0.28), name: "Other")
                     }
-                    legend(color: Color.primary.opacity(0.28), name: "Other")
-                    Spacer()
+                    Spacer(minLength: 16)
                     Button("Why the totals differ") { showTotalsExplanation = true }
                         .buttonStyle(.link).font(SDTheme.Font.secondary)
                         .popover(isPresented: $showTotalsExplanation) {
@@ -139,6 +142,62 @@ struct OverviewView: View {
     /// saved before allocation was tracked.
     private func diskBytes(_ scan: ScanResult) -> Int64 {
         scan.totalAllocated > 0 ? scan.totalAllocated : scan.totalBytes
+    }
+
+    // MARK: - File types
+
+    /// Bytes by category across scanned locations, skipping a location
+    /// nested in another so nothing is counted twice.
+    private var typeTotals: [(category: SDFileCategory, bytes: Int64)] {
+        var counted: [String] = []
+        var acc: [SDFileCategory: Int64] = [:]
+        for loc in scanned {
+            // Scans saved before category totals existed contribute nothing
+            // and do not shadow a nested location that has them.
+            guard let scan = app.scans[loc.id], !scan.categoryBytes.isEmpty else { continue }
+            if counted.contains(where: { CleanupService.isWithin(loc.id, root: $0) }) { continue }
+            counted.append(loc.id)
+            for (k, v) in scan.categoryBytes {
+                guard let c = SDFileCategory(rawValue: k) else { continue }
+                acc[c == .unknown ? .other : c, default: 0] += v   // one catch-all in the legend
+            }
+        }
+        return acc.map { ($0.key, $0.value) }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
+    }
+
+    /// Locations whose saved scan predates category totals.
+    private var typesMissing: [SDLocation] {
+        scanned.filter { app.scans[$0.id]?.categoryBytes.isEmpty ?? false }
+    }
+
+    private var typesFootnote: String {
+        let missing = typesMissing
+        if missing.isEmpty { return "Logical size of files inside the scanned locations, by kind." }
+        let names = missing.map(\.name).joined(separator: ", ")
+        return "Logical size of files by kind. Rescan \(names) to include " + (missing.count == 1 ? "it." : "them.")
+    }
+
+    private var typesSection: some View {
+        let total = max(1, typeTotals.reduce(0) { $0 + $1.bytes })
+        return VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: "By file type")
+            SegmentedCapacityBar(segments: typeTotals.map { .init(id: $0.category.rawValue, bytes: $0.bytes,
+                                                                  color: SDTheme.color(for: $0.category, scheme: scheme)) },
+                                 capacity: total)
+                .frame(height: 12)
+            FlowLayout(spacing: 18, rowSpacing: 6) {
+                ForEach(typeTotals.prefix(8), id: \.category) { item in
+                    HStack(spacing: 6) {
+                        Circle().fill(SDTheme.color(for: item.category, scheme: scheme)).frame(width: 8, height: 8)
+                        Text(item.category.label).foregroundStyle(.primary)
+                        Text(SDFormat.bytesString(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }
+            }
+            .font(SDTheme.Font.secondary)
+            Text(typesFootnote)
+                .font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
+        }
     }
 
     // MARK: - Locations

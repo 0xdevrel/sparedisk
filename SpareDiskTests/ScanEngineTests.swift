@@ -38,6 +38,9 @@ struct ScanEngineTests {
 
         let beta = result.topNodes[1]
         #expect(!beta.isFolder && beta.logicalBytes == 50)
+        // .txt files are documents; every byte lands in exactly one category.
+        #expect(result.categoryBytes[SDFileCategory.documents.rawValue] == 350)
+        #expect(result.categoryBytes.values.reduce(0, +) == result.totalBytes)
     }
 
     @Test func scanStampsStableIdentityOnCandidates() async throws {

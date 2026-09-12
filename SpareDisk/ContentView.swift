@@ -83,8 +83,9 @@ struct ContentView: View {
                 }
                 if showsViewPicker {
                     Picker("View", selection: $app.viewMode) {
-                        Label("List", systemImage: "list.bullet").tag(SDViewMode.list)
-                        Label("Map", systemImage: "square.grid.2x2").tag(SDViewMode.map)
+                        Image(systemName: "list.bullet").accessibilityLabel("List").help("List").tag(SDViewMode.list)
+                        Image(systemName: "square.grid.2x2").accessibilityLabel("Map").help("Map").tag(SDViewMode.map)
+                        Image(systemName: "circle.circle").accessibilityLabel("Sunburst").help("Sunburst").tag(SDViewMode.sunburst)
                     }
                     .pickerStyle(.segmented)
                     .help("View as list or map")
