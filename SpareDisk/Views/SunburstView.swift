@@ -67,6 +67,9 @@ struct SunburstView: View {
                             ctx.fill(path, with: .color(s.color.opacity(SDTheme.mapFillOpacity(scheme: scheme, emphasized: selected || isHovered))))
                             if s.end - s.start > 0.02 {
                                 ctx.stroke(path, with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: selected ? 0 : 1.5)
+                                // A faint edge so every boundary reads even when a fill
+                                // sits close to the background.
+                                ctx.stroke(path, with: .color(.primary.opacity(scheme == .dark ? 0.22 : 0.14)), lineWidth: 0.75)
                             }
                             if selected {
                                 ctx.stroke(path, with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: 6)

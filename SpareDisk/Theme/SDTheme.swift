@@ -204,13 +204,15 @@ enum SDTheme {
     /// dates are neutral, never presented as evidence that a file is old.
     static func ageComponents(bucket: Int, scheme: ColorScheme) -> RGB {
         guard ageBuckets.indices.contains(bucket) else { return neutralComponents(scheme: scheme) }
+        // Both ends stay clear of the window background (checked by a
+        // test), so the newest step still has an edge instead of dissolving.
         let light: [RGB] = [
-            (0.50, 0.65, 0.84), (0.62, 0.74, 0.88), (0.73, 0.82, 0.92),
-            (0.82, 0.88, 0.95), (0.90, 0.93, 0.97),
+            (0.42, 0.58, 0.80), (0.52, 0.66, 0.85), (0.61, 0.74, 0.89),
+            (0.69, 0.79, 0.91), (0.76, 0.84, 0.93),
         ]
         let dark: [RGB] = [
-            (0.29, 0.49, 0.73), (0.27, 0.42, 0.62), (0.24, 0.35, 0.51),
-            (0.22, 0.29, 0.41), (0.20, 0.24, 0.31),
+            (0.33, 0.53, 0.78), (0.31, 0.47, 0.68), (0.29, 0.41, 0.58),
+            (0.28, 0.36, 0.49), (0.27, 0.32, 0.41),
         ]
         return (scheme == .dark ? dark : light)[bucket]
     }

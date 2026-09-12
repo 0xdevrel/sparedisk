@@ -105,6 +105,24 @@ struct PaletteContrastTests {
         }
     }
 
+    /// Fills must stand off the window they sit on, not only carry their
+    /// labels: a shape that matches the background has no boundary.
+    @Test func everyFillClearsTheWindowBackground() {
+        for scheme in [ColorScheme.light, .dark] {
+            let bg = SDTheme.backgroundLuminanceComponents(scheme: scheme)
+            let floor = scheme == .dark ? 2.0 : 1.4
+            var fills: [(String, SDTheme.RGB)] = []
+            for i in 0..<SDTheme.hueCount { fills.append(("hue \(i)", SDTheme.hueComponents(i, scheme: scheme))) }
+            for c in SDFileCategory.allCases { fills.append((c.rawValue, SDTheme.categoryComponents(c, scheme: scheme))) }
+            for b in 0..<SDTheme.ageBuckets.count { fills.append(("age \(b)", SDTheme.ageComponents(bucket: b, scheme: scheme))) }
+            fills.append(("neutral", SDTheme.neutralComponents(scheme: scheme)))
+            for (name, fill) in fills {
+                let ratio = SDTheme.contrast(fill, bg)
+                #expect(ratio >= floor, "\(name) \(scheme) is \(ratio) against the window")
+            }
+        }
+    }
+
     @Test func ageScaleHasOrderedLightness() {
         let light = SDTheme.ageBuckets.indices.map { SDTheme.luminance(SDTheme.ageComponents(bucket: $0, scheme: .light)) }
         let dark = SDTheme.ageBuckets.indices.map { SDTheme.luminance(SDTheme.ageComponents(bucket: $0, scheme: .dark)) }

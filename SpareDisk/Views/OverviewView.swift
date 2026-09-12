@@ -326,10 +326,16 @@ private struct LocationRow: View {
                 } else if !location.access.isOK {
                     Button("Reconnect…") { Task { await app.addLocationFlow(startingAt: URL(fileURLWithPath: location.id)) } }
                 } else {
-                    Button(scan == nil ? "Scan" : "Rescan") { app.scanLocation(id: location.id) }
-                        .accessibilityLabel("\(scan == nil ? "Scan" : "Rescan") \(location.name)")
-                    if scan != nil {
+                    // Open is the destination; scanning is maintenance.
+                    if scan == nil {
+                        Button("Scan") { app.scanLocation(id: location.id) }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityLabel("Scan \(location.name)")
+                    } else {
+                        Button("Rescan") { app.scanLocation(id: location.id) }
+                            .accessibilityLabel("Rescan \(location.name)")
                         Button("Open") { app.selection = .location(location.id) }
+                            .buttonStyle(.borderedProminent)
                     }
                 }
             }
