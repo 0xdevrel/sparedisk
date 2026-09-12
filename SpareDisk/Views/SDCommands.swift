@@ -113,6 +113,11 @@ struct AboutView: View {
                 .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
             Text("Analyzes the folders you choose. Files move to the Trash only after you confirm.")
                 .font(SDTheme.Font.secondary).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            HStack(spacing: 14) {
+                Link("sparedisk.minilabs.cc", destination: URL(string: "https://sparedisk.minilabs.cc/")!)
+                Link("support@minilabs.cc", destination: URL(string: "mailto:support@minilabs.cc")!)
+            }
+            .font(SDTheme.Font.secondary)
             Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).padding(.top, 8)
         }
         .padding(32).frame(width: 390)
