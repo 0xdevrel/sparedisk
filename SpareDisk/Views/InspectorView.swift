@@ -297,6 +297,9 @@ private struct StorageInspector: View {
     @Environment(AppState.self) private var app
     @Environment(\.colorScheme) private var scheme
     let summary: StorageSummary
+    @State private var hoveredID: String?
+
+    private var hoveredSlice: Slice? { slices.first { $0.id == hoveredID } }
 
     private struct Slice: Identifiable {
         var id: String
@@ -324,19 +327,45 @@ private struct StorageInspector: View {
             ZStack {
                 Chart(slices) { s in
                     SectorMark(angle: .value("Bytes", s.bytes), innerRadius: .ratio(0.68), angularInset: 1.2)
-                        .foregroundStyle(s.color)
+                        .foregroundStyle(s.color.opacity(hoveredID == nil || hoveredID == s.id ? 1 : 0.4))
                         .cornerRadius(2)
                 }
                 .chartLegend(.hidden)
-                VStack(spacing: 2) {
-                    Text(SDFormat.bytesString(summary.volume.availableBytes)).font(SDTheme.Font.figureSmall)
-                    Text("available").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                .overlay {
+                    GeometryReader { geometry in
+                        Color.clear.contentShape(Rectangle())
+                            .onContinuousHover { phase in
+                                switch phase {
+                                case .active(let point):
+                                    let bounds = CGRect(origin: .zero, size: geometry.size)
+                                    let index = StorageDonutHitTest.index(at: point, in: bounds, weights: slices.map(\.bytes))
+                                    hoveredID = index.map { slices[$0].id }
+                                case .ended: hoveredID = nil
+                                }
+                            }
+                    }
                 }
+                VStack(spacing: 3) {
+                    Text(SDFormat.bytesString(hoveredSlice?.bytes ?? summary.volume.availableBytes))
+                        .font(SDTheme.Font.figureSmall)
+                    Text(hoveredSlice?.name ?? "available")
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                        .lineLimit(2).multilineTextAlignment(.center)
+                    if let slice = hoveredSlice {
+                        Text((Double(slice.bytes) / Double(max(1, summary.scale))).formatted(.percent.precision(.fractionLength(1))) + " of chart")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: 130)
+                .allowsHitTesting(false)
             }
             .frame(height: 210)
             .padding(.vertical, 6)
+            .onChange(of: summary) { _, _ in hoveredID = nil }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(SDFormat.bytesString(summary.used)) used, \(SDFormat.bytesString(summary.volume.availableBytes)) available")
+            .accessibilityLabel(hoveredSlice.map { "\($0.name), \(SDFormat.bytesString($0.bytes))" }
+                                ?? "\(SDFormat.bytesString(summary.used)) used, \(SDFormat.bytesString(summary.volume.availableBytes)) available")
+            .accessibilityIdentifier("storage-donut")
             Divider()
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 7) {
                 ForEach(slices) { s in
@@ -346,6 +375,9 @@ private struct StorageInspector: View {
                         Text(SDFormat.bytesString(s.bytes)).monospacedDigit().foregroundStyle(.secondary)
                             .gridColumnAlignment(.trailing)
                     }
+                    .contentShape(Rectangle())
+                    .onHover { hoveredID = $0 ? s.id : nil }
+                    .background(hoveredID == s.id ? Color.primary.opacity(0.06) : .clear)
                 }
             }
             .font(SDTheme.Font.secondary)
@@ -354,5 +386,26 @@ private struct StorageInspector: View {
                  : "Sizes on disk. Other used is everything outside the scanned folders.")
                 .font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
         }
+    }
+}
+
+/// SectorMark starts at twelve o'clock and proceeds clockwise. Exclude
+/// the hole and the area outside the ring so hover never reports a guess.
+nonisolated enum StorageDonutHitTest {
+    static func index(at point: CGPoint, in bounds: CGRect, weights: [Int64]) -> Int? {
+        let radius = min(bounds.width, bounds.height) / 2
+        let dx = point.x - bounds.midX, dy = point.y - bounds.midY
+        let distance = hypot(dx, dy)
+        guard radius > 0, distance >= radius * 0.68, distance <= radius else { return nil }
+        let total = weights.reduce(0.0) { $0 + Double(max(0, $1)) }
+        guard total > 0 else { return nil }
+        let angle = (atan2(dx, -dy) + 2 * .pi).truncatingRemainder(dividingBy: 2 * .pi)
+        let value = angle / (2 * .pi) * total
+        var end = 0.0
+        for (index, weight) in weights.enumerated() where weight > 0 {
+            end += Double(weight)
+            if value < end { return index }
+        }
+        return nil
     }
 }

@@ -56,11 +56,14 @@ struct SunburstView: View {
                             path.closeSubpath()
                             let selected = !s.isRest && s.node != nil && s.node?.id == app.inspectedNodeID
                             let isHovered = hovered?.id == s.id
-                            ctx.fill(path, with: .color(s.color.opacity(selected || isHovered ? 1 : 0.85)))
+                            ctx.fill(path, with: .color(s.color.opacity(SDTheme.mapFillOpacity(scheme: scheme, emphasized: selected || isHovered))))
                             if s.end - s.start > 0.02 {
                                 ctx.stroke(path, with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: selected ? 0 : 1.5)
                             }
-                            if selected { ctx.stroke(path, with: .color(.accentColor), lineWidth: 2.5) }
+                            if selected {
+                                ctx.stroke(path, with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: 6)
+                                ctx.stroke(path, with: .color(.accentColor), lineWidth: 2.5)
+                            }
                             else if isHovered { ctx.stroke(path, with: .color(.primary.opacity(0.55)), lineWidth: 1.5) }
                         }
                     }
@@ -150,7 +153,7 @@ struct SunburstView: View {
             if app.mapColor == .folder {
                 Text(singleRing ? "Each file in proportion to its size. Grey: smaller items, click for the list."
                      : "Inner ring: this level. Outer ring: inside each folder. Grey: smaller items, click for the list.")
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             } else {
                 MapColorLegend().font(.system(size: 11)).foregroundStyle(.secondary)
             }
@@ -175,7 +178,7 @@ struct SunburstView: View {
                 Text("\(levelNodes.count) items").font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if !app.mapTrail.isEmpty {
-                Text("Click to go up").font(.system(size: 10)).foregroundStyle(.tertiary)
+                Text("Click to go up").font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
         .frame(width: inner * 1.6)
@@ -270,9 +273,10 @@ struct SunburstView: View {
         }
         var out: [Sector] = []
         var angle = 0.0
-        for (i, n) in level.enumerated() {
+        let hues = SDTheme.folderHues(for: level, bytes: app.bytes)
+        for n in level {
             let span = 2 * .pi * Double(app.bytes(n)) / Double(total)
-            let comps = components(for: n, rank: i)
+            let comps = SDTheme.mapComponents(for: n, mode: app.mapColor, scheme: scheme, hue: hues[n.id])
             let color = Color(red: comps.r, green: comps.g, blue: comps.b)
             out.append(Sector(id: n.id, node: n, parentID: "", bytes: app.bytes(n), ring: 0, start: angle, end: angle + span, color: color))
             // Outer ring: children wide enough to read get their own sector;
@@ -284,11 +288,11 @@ struct SunburstView: View {
             var a = angle
             var shown: Int64 = 0
             if span >= Self.minParentSpanForChildren {
-                for (j, k) in kids.enumerated() {
+                for k in kids {
                     let ks = span * Double(app.bytes(k)) / Double(parentBytes)
                     guard ks >= Self.minChildSpan else { break }
                     out.append(Sector(id: k.id, node: k, parentID: n.id, bytes: app.bytes(k), ring: 1, start: a, end: a + ks,
-                                      color: childColor(parent: comps, node: k, index: j)))
+                                      color: childColor(parent: comps, node: k)))
                     a += ks
                     shown += app.bytes(k)
                 }
@@ -302,37 +306,15 @@ struct SunburstView: View {
         if restCount > 0 {
             let span = 2 * .pi * Double(restBytes) / Double(total)
             out.append(Sector(id: "__other", node: nil, parentID: "", bytes: restBytes, ring: 0,
-                              start: angle, end: angle + span, color: Color.primary.opacity(0.18)))
+                              start: angle, end: angle + span,
+                              color: { let c = SDTheme.foldedComponents(scheme: scheme); return Color(red: c.r, green: c.g, blue: c.b) }()))
         }
         return out
     }
 
-    private func components(for node: ScanNode, rank: Int) -> (r: Double, g: Double, b: Double) {
-        switch app.mapColor {
-        case .folder: return SDTheme.hueComponents(rank, scheme: scheme)
-        case .type: return SDTheme.categoryComponents(node.category, scheme: scheme)
-        case .age: return SDTheme.ageComponents(bucket: SDTheme.ageBucket(for: node.modified), scheme: scheme)
-        }
-    }
-
-    private func color(for node: ScanNode, rank: Int) -> Color {
-        let c = components(for: node, rank: rank)
+    private func childColor(parent: SDTheme.RGB, node: ScanNode) -> Color {
+        let c = SDTheme.childMapComponents(for: node, parent: parent, mode: app.mapColor, scheme: scheme)
         return Color(red: c.r, green: c.g, blue: c.b)
-    }
-
-    /// Children read as lighter steps of their parent's hue, alternating so
-    /// neighbours separate without the dimming that made the outer ring
-    /// vanish against a dark background. Type and age modes keep their own
-    /// meaning and only alternate the step.
-    private func childColor(parent: (r: Double, g: Double, b: Double), node: ScanNode, index: Int) -> Color {
-        let base: (r: Double, g: Double, b: Double)
-        switch app.mapColor {
-        case .folder: base = parent
-        case .type: base = SDTheme.categoryComponents(node.category, scheme: scheme)
-        case .age: base = SDTheme.ageComponents(bucket: SDTheme.ageBucket(for: node.modified), scheme: scheme)
-        }
-        let lift = index % 2 == 0 ? 0.22 : 0.10
-        return Color(red: base.r + (1 - base.r) * lift, green: base.g + (1 - base.g) * lift, blue: base.b + (1 - base.b) * lift)
     }
 
     private func drill(_ node: ScanNode) {

@@ -75,6 +75,20 @@ struct ContentView: View {
                     .disabled(!app.canGoForward).help("Forward (⌘])")
             }
             ToolbarItemGroup(placement: .primaryAction) {
+                if app.selection == .overview {
+                    if app.isScanning {
+                        Button("Cancel Scans", systemImage: "xmark.circle") { app.cancelAllScans() }
+                            .labelStyle(.titleAndIcon)
+                            .accessibilityIdentifier("overview-cancel-scans")
+                    } else {
+                        Button(app.overviewScanTitle, systemImage: "arrow.clockwise") {
+                            Task { await app.scanOverview() }
+                        }
+                        .labelStyle(.titleAndIcon)
+                        .help(app.locations.isEmpty ? "Choose your Home folder to begin scanning" : "Scan every saved location")
+                        .accessibilityIdentifier("overview-scan")
+                    }
+                }
                 if isBrowsing {
                     if app.isScanning && app.scanningLocationID == app.activeLocationID {
                         Button("Cancel Scan", systemImage: "xmark.circle") { app.cancelScan() }

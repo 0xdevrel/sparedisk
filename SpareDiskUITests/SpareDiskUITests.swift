@@ -73,4 +73,45 @@ final class SpareDiskUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 5), .completed)
     }
 
+    @MainActor
+    func testMyMacOffersRescanAndKeepsOverviewVisible() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestFixture"]
+        app.launch()
+        let rescan = app.windows.firstMatch.buttons["overview-scan"]
+        XCTAssertTrue(rescan.waitForExistence(timeout: 20))
+        XCTAssertEqual(rescan.label, "Rescan")
+        let donut = app.windows.firstMatch.descendants(matching: .any).matching(identifier: "storage-donut").firstMatch
+        XCTAssertTrue(donut.exists)
+        let initialLabel = donut.label
+        donut.coordinate(withNormalizedOffset: CGVector(dx: 0.84, dy: 0.5)).hover()
+        let hovered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "Other used,"), object: donut)
+        XCTAssertEqual(XCTWaiter.wait(for: [hovered], timeout: 5), .completed)
+        donut.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).hover()
+        let cleared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", initialLabel), object: donut)
+        XCTAssertEqual(XCTWaiter.wait(for: [cleared], timeout: 5), .completed)
+        rescan.click()
+        XCTAssertTrue(rescan.waitForExistence(timeout: 20))
+        XCTAssertEqual(rescan.label, "Rescan")
+        XCTAssertTrue(app.buttons["Open"].firstMatch.exists)
+    }
+
+    @MainActor
+    func testFirstRunScanRequiresFolderChoiceAndCancelIsSafe() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestFixture", "-uiTestFirstLaunch"]
+        app.launch()
+        let scan = app.windows.firstMatch.buttons["overview-scan"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 10))
+        XCTAssertEqual(scan.label, "Scan My Mac…")
+        XCTAssertFalse(app.windows.firstMatch.buttons["overview-cancel-scans"].exists)
+        scan.click()
+        let cancel = app.windows.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+        cancel.click()
+        XCTAssertTrue(scan.waitForExistence(timeout: 10))
+        XCTAssertEqual(scan.label, "Scan My Mac…")
+        XCTAssertFalse(app.windows.firstMatch.buttons["overview-cancel-scans"].exists)
+    }
+
 }
