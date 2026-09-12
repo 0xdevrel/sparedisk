@@ -49,6 +49,7 @@ SpareDisk is a sandboxed, SwiftUI-native macOS utility that analyzes folders **y
 - [Roadmap](#roadmap)
 - [Brand assets](#brand-assets)
 - [Docs](#docs)
+- [License](#license)
 
 ---
 
@@ -528,4 +529,8 @@ Per `docs/APP_REVIEW.md` § Design direction:
 
 ---
 
-*No license file is present in this repository. All analysis stays on this Mac; file names, paths, and duplicate-hash contents are never uploaded.*
+## License
+
+SpareDisk is free for personal and noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE) — personal study, hobby projects, research, and use by charities, schools, and public institutions are all permitted. Commercial use (including using it at or for a for-profit company) requires a separate license: contact support@minilabs.cc.
+
+*All analysis stays on this Mac; file names, paths, and duplicate-hash contents are never uploaded.*
