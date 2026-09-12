@@ -12,6 +12,10 @@ struct ChangesView: View {
                 Text("Changes in \(locationName)").font(SDTheme.Font.section)
                 Text("Since \(diff.previousFinished.formatted(date: .abbreviated, time: .shortened)): \(signed(diff.bytesDelta)), \(diff.itemsDelta >= 0 ? "+" : "")\(diff.itemsDelta.formatted()) items")
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                if diff.hasUnreadable {
+                    Text("Items this scan could not read are left out of the totals.")
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                }
             }
             if diff.changes.isEmpty {
                 Text("No top-level folder or file changed size.").font(SDTheme.Font.body).foregroundStyle(.secondary)

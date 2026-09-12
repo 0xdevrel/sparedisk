@@ -172,15 +172,25 @@ nonisolated enum DuplicateService {
                                keepers: [String: String]) -> (kept: [ReviewItem], protected: [CleanupResult]) {
         var kept = plan
         var protected: [CleanupResult] = []
+        // Whether moving `item` would take the file at `path` with it: the
+        // same path under any id, or a staged folder that contains it.
+        func removes(_ item: ReviewItem, _ path: String) -> Bool {
+            let p = CleanupService.standardized(item.node.path)
+            let q = CleanupService.standardized(path)
+            return p == q || (item.node.isFolder && CleanupService.isWithin(q, root: p))
+        }
         for g in groups where g.files.count > 1 {
-            let memberIDs = Set(g.files.map(\.id))
-            guard kept.filter({ memberIDs.contains($0.id) }).count == g.files.count else { continue }
-            let keeper = keepers[g.id] ?? g.files[0].id
-            if let idx = kept.firstIndex(where: { $0.id == keeper }) {
+            guard g.files.allSatisfy({ f in kept.contains { removes($0, f.path) } }) else { continue }
+            let keeperID = keepers[g.id] ?? g.files[0].id
+            let keeper = g.files.first(where: { $0.id == keeperID }) ?? g.files[0]
+            for idx in kept.indices.reversed() where removes(kept[idx], keeper.path) {
                 let k = kept.remove(at: idx)
+                let direct = CleanupService.standardized(k.node.path) == CleanupService.standardized(keeper.path)
                 protected.append(CleanupResult(
                     id: k.id, name: k.node.name, path: k.node.path, bytes: k.node.logicalBytes,
-                    outcome: .blocked("Kept as the last copy of these contents. Choose a different copy to keep if you want this one removed.")))
+                    outcome: .blocked(direct
+                        ? "Kept as the last copy of these contents. Choose a different copy to keep if you want this one removed."
+                        : "Contains \(keeper.name), the kept copy of duplicated contents. Choose another copy to keep, or move the copy out first.")))
             }
         }
         return (kept, protected)

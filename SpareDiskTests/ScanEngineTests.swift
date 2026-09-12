@@ -62,6 +62,14 @@ struct ScanEngineTests {
         #expect(result.categoryBytes[SDFileCategory.media.rawValue] == 4096)
     }
 
+    @Test func rawExtensionSplitsCameraFilesFromDiskImages() {
+        #expect(ScanEngine.category(name: "P1000123.RAW", ext: "raw", isDir: false, size: 24_000_000) == .media)
+        #expect(ScanEngine.category(name: "Docker.raw", ext: "raw", isDir: false, size: 2_000_000_000) == .developer)
+        #expect(ScanEngine.category(name: "disk.raw", ext: "raw", isDir: false, size: 8_000_000_000) == .developer)
+        #expect(ScanEngine.category(name: "shot.rw2", ext: "rw2", isDir: false, size: 30_000_000) == .media)
+        #expect(ScanEngine.category(name: "ubuntu.qcow2", ext: "qcow2", isDir: false, size: 5_000_000_000) == .developer)
+    }
+
     @Test func scanStampsStableIdentityOnCandidates() async throws {
         let root = try makeFixture()
         defer { try? FileManager.default.removeItem(at: root) }

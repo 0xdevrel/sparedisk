@@ -150,9 +150,10 @@ nonisolated struct ReviewItem: Identifiable, Hashable {
     var source: String
     var reason: String
     var risk: String
-    /// When the user staged it. Anything inside a folder modified after this
-    /// instant means the folder is no longer what was reviewed.
-    var stagedAt: Date = Date()
+    /// When the figures the user saw were taken: the finish time of the scan
+    /// they came from. Anything inside a folder modified after this instant
+    /// means the folder is no longer what was reviewed.
+    var verifiedAt: Date = Date()
 }
 
 // MARK: - App state
@@ -485,9 +486,19 @@ final class AppState {
                 reason: source,
                 risk: node.isFolder ? "Folder. Review all contents before removal."
                     : node.hardLinkCount > 1 ? "One of \(node.hardLinkCount) hard links. The others keep the contents."
-                    : "File. Moves to Trash on confirm."
+                    : "File. Moves to Trash on confirm.",
+                verifiedAt: verificationTime(for: node)
             ))
         }
+    }
+
+    /// The finish time of the scan a node's figures came from. Edits after
+    /// it, even before staging, mean the shown size is no longer true.
+    func verificationTime(for node: ScanNode) -> Date {
+        let loc = locations
+            .filter { node.path == $0.id || CleanupService.isWithin(node.path, root: $0.id) }
+            .max { $0.id.count < $1.id.count }
+        return loc.flatMap { scans[$0.id]?.finishedAt } ?? Date()
     }
 
     func isQueued(_ id: String) -> Bool {

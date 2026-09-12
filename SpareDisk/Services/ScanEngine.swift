@@ -371,7 +371,7 @@ nonisolated enum ScanEngine {
                     } else {
                         links[key] = LinkHit(top: String(top), sub: second.map { String(top) + "/" + String($0) },
                                              bytes: st.size, alloc: st.allocated,
-                                             cat: ScanEngine.category(name: name, ext: ext, isDir: false))
+                                             cat: ScanEngine.category(name: name, ext: ext, isDir: false, size: st.size))
                     }
                 }
                 let bytes = st.isDir || duplicateLink ? 0 : st.size
@@ -388,7 +388,7 @@ nonisolated enum ScanEngine {
                 state.count += 1
                 added += 1
                 if st.isRegular, bytes > 0 {
-                    state.byCategory[ScanEngine.category(name: name, ext: ext, isDir: false), default: 0] += bytes
+                    state.byCategory[ScanEngine.category(name: name, ext: ext, isDir: false, size: st.size), default: 0] += bytes
                 }
 
                 if st.isDir {
@@ -479,7 +479,7 @@ nonisolated enum ScanEngine {
             && (st.modified! < state.newestTracked || state.oldest.count < candidateCap)
         guard wantsLargest || wantsOldest else { return }
         let node = ScanNode(id: "\(locationID)#\(path)", name: name, path: path,
-                            isFolder: false, category: category(name: name, ext: ext, isDir: false),
+                            isFolder: false, category: category(name: name, ext: ext, isDir: false, size: st.size),
                             logicalBytes: st.size, modified: st.modified, childCount: 0,
                             isCloudPlaceholder: st.dataless,
                             fsFileNumber: st.ino, fsVolumeNumber: st.dev,
@@ -575,7 +575,8 @@ nonisolated enum ScanEngine {
     private static let mediaExt: Set<String> = [
         "mp4", "mov", "m4v", "mkv", "avi", "webm", "wmv", "flv", "mts", "m2ts", "mxf", "prores",
         "heic", "heif", "jpg", "jpeg", "png", "gif", "tif", "tiff", "bmp", "webp", "psd", "ai", "svg",
-        "raw", "cr2", "cr3", "nef", "arw", "dng", "orf", "raf",
+        "raw", "cr2", "cr3", "nef", "arw", "dng", "orf", "raf", "rw2", "pef", "srw", "x3f", "3fr", "iiq",
+        "nrw", "erf", "mrw", "dcr", "kdc", "rwl", "srf", "sr2",
         "mp3", "wav", "aac", "m4a", "flac", "aif", "aiff", "ogg", "alac", "caf",
         "sketch", "fig", "afdesign", "afphoto", "procreate", "blend", "c4d", "fbx", "obj", "usdz",
     ]
@@ -588,14 +589,21 @@ nonisolated enum ScanEngine {
         "java", "kt", "kts", "cs", "php", "sh", "zsh", "json", "yaml", "yml", "toml", "xml", "plist",
         "xcodeproj", "xcworkspace", "playground", "o", "a", "dylib", "so", "wasm", "jar", "class",
         "xcarchive", "ipsw", "simruntime", "sqlite", "db", "realm",
+        // Virtual machine and container disks.
+        "qcow2", "qcow", "vmdk", "vdi", "vhd", "vhdx", "hdd", "hds", "utm",
     ]
+
+    /// Camera raw files top out well under this; a ".raw" this large is a
+    /// disk image (Docker, QEMU), which belongs with developer data.
+    static let largestCameraRaw: Int64 = 1_000_000_000
     private static let documentExt: Set<String> = [
         "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pages", "numbers", "key", "txt", "rtf", "rtfd",
         "md", "csv", "epub", "mobi", "odt", "ods", "odp", "tex", "html", "htm", "eml", "ics", "vcf",
     ]
 
-    static func category(name: String, ext: String, isDir: Bool) -> SDFileCategory {
+    static func category(name: String, ext: String, isDir: Bool, size: Int64 = 0) -> SDFileCategory {
         if ext == "app" { return .apps }
+        if ext == "raw", size >= largestCameraRaw || name.lowercased() == "docker.raw" { return .developer }
         if mediaExt.contains(ext) { return .media }
         if archiveExt.contains(ext) { return .archives }
         if developerExt.contains(ext) { return .developer }
@@ -644,7 +652,7 @@ nonisolated extension ScanEngine.Agg {
         if let own {
             isDir = own.isDir
             self.isPkg = isPkg
-            cat = ScanEngine.category(name: name, ext: ext, isDir: own.isDir)
+            cat = ScanEngine.category(name: name, ext: ext, isDir: own.isDir, size: own.size)
             self.own = own.modified
             dataless = own.dataless
             ownedByOthers = own.uid != ScanEngine.currentUID

@@ -19,6 +19,9 @@ struct ScanDiffTests {
         let d = ScanDiff.between(previous: prev, current: cur)
         #expect(d.changes.count == 2)
         #expect(d.changes.allSatisfy { $0.kind == "Unreadable" })
+        // Nothing was freed, so the summary must not claim a decrease.
+        #expect(d.bytesDelta == 0)
+        #expect(d.hasUnreadable)
     }
 
     @Test func unreadableIsNotReportedAsRemoved() {

@@ -71,6 +71,33 @@ struct DuplicateTests {
         #expect(partial.kept.map(\.id) == ["a"])
         #expect(partial.protected.isEmpty)
     }
+
+    @Test func protectKeepersSeesThroughFoldersAndOtherIDs() {
+        func file(_ id: String, _ path: String) -> ScanNode {
+            ScanNode(id: id, name: (path as NSString).lastPathComponent, path: path, isFolder: false,
+                     category: .documents, logicalBytes: 10, modified: nil, childCount: 0)
+        }
+        let a = file("a", "/tmp/scope/a.pdf"), b = file("b", "/tmp/scope/Dir/b.pdf")
+        let g = DuplicateGroup(id: "g", digestHex: "x", bytesPerFile: 10, files: [a, b])
+        let folder = ScanNode(id: "/tmp/scope/Dir", name: "Dir", path: "/tmp/scope/Dir", isFolder: true,
+                              category: .other, logicalBytes: 10, modified: nil, childCount: 1)
+        // A staged folder that holds the keeper is blocked, the other copy proceeds.
+        let viaFolder = DuplicateService.protectKeepers(
+            plan: [ReviewItem(id: a.id, node: a, source: "T", reason: "T", risk: "T"),
+                   ReviewItem(id: folder.id, node: folder, source: "T", reason: "T", risk: "T")],
+            groups: [g], keepers: ["g": "b"])
+        #expect(viaFolder.kept.map(\.id) == ["a"])
+        #expect(viaFolder.protected.map(\.id) == ["/tmp/scope/Dir"])
+        // The keeper staged from Browse under another id is still the keeper.
+        let browseB = ScanNode(id: "/tmp/scope/Dir/b.pdf", name: "b.pdf", path: b.path, isFolder: false,
+                               category: .documents, logicalBytes: 10, modified: nil, childCount: 0)
+        let viaID = DuplicateService.protectKeepers(
+            plan: [ReviewItem(id: a.id, node: a, source: "T", reason: "T", risk: "T"),
+                   ReviewItem(id: browseB.id, node: browseB, source: "T", reason: "T", risk: "T")],
+            groups: [g], keepers: ["g": "b"])
+        #expect(viaID.kept.map(\.id) == ["a"])
+        #expect(viaID.protected.count == 1)
+    }
 }
 
 /// Large-file paths: identical multi-megabyte files group, files that differ

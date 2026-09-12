@@ -68,6 +68,19 @@ nonisolated enum CleanupService {
         return kept
     }
 
+    /// Queue entries that survive a cleanup run: anything moved leaves by
+    /// id or by path (Browse and Find stage the same file under different
+    /// ids), and so does everything inside a moved folder.
+    static func remaining(_ items: [ReviewItem], afterMoving moved: [CleanupResult]) -> [ReviewItem] {
+        let ids = Set(moved.map(\.id))
+        let paths = moved.map { standardized($0.path) }
+        return items.filter { item in
+            let p = standardized(item.node.path)
+            if ids.contains(item.id) || paths.contains(p) { return false }
+            return !paths.contains { isWithin(p, root: $0) }
+        }
+    }
+
     // MARK: - Execution
 
     /// `plan` pairs each item with its authorized scope root. Runs wherever
@@ -89,7 +102,7 @@ nonisolated enum CleanupService {
                                  path: item.node.path, bytes: item.node.logicalBytes,
                                  outcome: .missing)
         let url = URL(fileURLWithPath: item.node.path)
-        switch revalidate(url: url, node: item.node, scope: scope, stagedAt: item.stagedAt) {
+        switch revalidate(url: url, node: item.node, scope: scope, verifiedAt: item.verifiedAt) {
         case .ok: break
         case .blocked(let reason):
             var r = base; r.outcome = .blocked(reason); return r
@@ -121,7 +134,7 @@ nonisolated enum CleanupService {
 
     enum Revalidation: Equatable { case ok, blocked(String), changed(String), gone }
 
-    static func revalidate(url: URL, node: ScanNode, scope: URL, stagedAt: Date? = nil) -> Revalidation {
+    static func revalidate(url: URL, node: ScanNode, scope: URL, verifiedAt: Date? = nil) -> Revalidation {
         // Resolve symlinked ancestors on both sides: lexical normalization
         // alone does not establish containment (P1).
         let target = url.standardizedFileURL.resolvingSymlinksInPath()
@@ -183,9 +196,10 @@ nonisolated enum CleanupService {
             }
             // A folder's own date only moves when its direct entries change.
             // Edits deeper inside leave it untouched, so look at every
-            // descendant's dates against the moment the user staged it.
-            if let stagedAt {
-                switch newestDescendantChange(in: target, since: stagedAt) {
+            // descendant's dates against the moment the shown figures were
+            // taken, which is the scan, not the click that staged it.
+            if let verifiedAt {
+                switch newestDescendantChange(in: target, since: verifiedAt) {
                 case .changed(let name):
                     return .changed("\(name) inside it changed after review. Review the folder again.")
                 case .tooLarge:

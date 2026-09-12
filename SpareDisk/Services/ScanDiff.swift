@@ -15,7 +15,7 @@ nonisolated struct ScanChange: Identifiable, Hashable {
     /// so a missing or smaller figure is not evidence of deletion.
     var isUnreadable: Bool = false
 
-    var delta: Int64 { isUnreadable && after == nil ? 0 : (after ?? 0) - (before ?? 0) }
+    var delta: Int64 { isUnreadable ? 0 : (after ?? 0) - (before ?? 0) }
     var kind: String {
         if isUnreadable { return "Unreadable" }
         switch (before, after) {
@@ -28,9 +28,12 @@ nonisolated struct ScanChange: Identifiable, Hashable {
 
 nonisolated struct ScanDiff: Hashable {
     var previousFinished: Date
+    /// Sum of the listed changes. Items the current scan could not read
+    /// contribute nothing, so a denied folder never reads as freed space.
     var bytesDelta: Int64
     var itemsDelta: Int
     var changes: [ScanChange]
+    var hasUnreadable: Bool { changes.contains(where: \.isUnreadable) }
 
     static func between(previous: ScanResult, current: ScanResult) -> ScanDiff {
         let old = Dictionary(previous.topNodes.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
@@ -57,7 +60,7 @@ nonisolated struct ScanDiff: Hashable {
         }
         changes.sort { abs($0.delta) > abs($1.delta) }
         return ScanDiff(previousFinished: previous.finishedAt,
-                        bytesDelta: current.totalBytes - previous.totalBytes,
+                        bytesDelta: changes.reduce(0) { $0 + $1.delta },
                         itemsDelta: current.itemCount - previous.itemCount,
                         changes: changes)
     }

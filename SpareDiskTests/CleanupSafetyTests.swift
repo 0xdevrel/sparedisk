@@ -128,15 +128,35 @@ struct CleanupRevalidationTests {
 
         let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
         let project = try #require(result.topNodes.first(where: { $0.name == "Project" }))
-        let staged = Date()
-        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, stagedAt: staged) == .ok)
+        // The reference is the scan, so an untouched folder passes.
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, verifiedAt: result.finishedAt) == .ok)
 
-        // Two levels down, right away: the folder's own date does not move
-        // and there is no grace period.
+        // Two levels down, before anyone stages it: the folder's own date
+        // does not move, and the staging click must not reset the clock.
         try await Task.sleep(for: .milliseconds(20))
         try Data(repeating: 9, count: 10).write(to: deep.appendingPathComponent("a.bin"))
-        let after = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, stagedAt: staged)
+        let stagedLater = Date()
+        let after = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, verifiedAt: result.finishedAt)
         guard case .changed = after else { Issue.record("expected .changed, got \(after)"); return }
+        #expect(stagedLater > result.finishedAt)
+    }
+
+    @Test func movedFileLeavesQueueUnderEveryID() {
+        func item(_ id: String, _ path: String) -> ReviewItem {
+            let n = ScanNode(id: id, name: (path as NSString).lastPathComponent, path: path, isFolder: false,
+                             category: .documents, logicalBytes: 100, modified: nil, childCount: 0)
+            return ReviewItem(id: id, node: n, source: "T", reason: "T", risk: "T")
+        }
+        let browse = item("/tmp/scope/big.mov", "/tmp/scope/big.mov")
+        let find = item("/tmp/scope#/tmp/scope/big.mov", "/tmp/scope/big.mov")
+        let inside = item("/tmp/scope/Dir/x.txt", "/tmp/scope/Dir/x.txt")
+        let other = item("o", "/tmp/scope/Other.txt")
+        let moved = [
+            CleanupResult(id: find.id, name: "big.mov", path: "/tmp/scope/big.mov", bytes: 100, outcome: .moved(trashURL: URL(fileURLWithPath: "/tmp/T/big.mov"))),
+            CleanupResult(id: "d", name: "Dir", path: "/tmp/scope/Dir", bytes: 100, outcome: .moved(trashURL: URL(fileURLWithPath: "/tmp/T/Dir"))),
+        ]
+        let left = CleanupService.remaining([browse, find, inside, other], afterMoving: moved)
+        #expect(left.map(\.id) == ["o"])
     }
 
     @Test func unreadableDescendantBlocksTheMove() async throws {
@@ -152,7 +172,7 @@ struct CleanupRevalidationTests {
         let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
         let project = try #require(result.topNodes.first(where: { $0.name == "Project" }))
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
-        let verdict = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, stagedAt: Date())
+        let verdict = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, verifiedAt: Date())
         guard case .blocked = verdict else { Issue.record("expected .blocked, got \(verdict)"); return }
     }
 

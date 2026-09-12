@@ -13,7 +13,8 @@ extension AppState {
     @MainActor
     func requestTrash(_ nodes: [ScanNode]) {
         let items = nodes.filter { canReview($0) }.map {
-            ReviewItem(id: $0.id, node: $0, source: "Direct", reason: "Direct", risk: $0.isFolder ? "Folder" : "File")
+            ReviewItem(id: $0.id, node: $0, source: "Direct", reason: "Direct", risk: $0.isFolder ? "Folder" : "File",
+                       verifiedAt: verificationTime(for: $0))
         }
         guard !items.isEmpty else { return }
         directTrashItems = items
@@ -136,14 +137,9 @@ extension AppState {
         } else {
             lastCleanupSummary = "Moved \(moved.count) item\(moved.count == 1 ? "" : "s") to Trash. \(stuck) could not be moved."
         }
-        // Reconcile: moved items leave, plus anything nested under a moved
-        // folder (normalize kept them out of the plan; the move took them).
-        let movedIDs = Set(moved.map(\.id))
-        let movedPaths = moved.map(\.path)
-        reviewItems.removeAll(where: { item in
-            movedIDs.contains(item.id)
-                || movedPaths.contains(where: { CleanupService.isWithin(item.node.path, root: $0) })
-        })
+        // Reconcile: moved items leave, whichever id staged them, plus
+        // anything nested under a moved folder.
+        reviewItems = CleanupService.remaining(reviewItems, afterMoving: moved)
     }
 
     @MainActor
