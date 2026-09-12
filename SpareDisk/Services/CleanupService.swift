@@ -172,6 +172,9 @@ nonisolated enum CleanupService {
             return .changed("Changed type after review. Review it again.")
         }
         if node.isFolder {
+            if !identityMatches(node: node, fileNumber: live.ino, volumeNumber: live.dev) {
+                return .changed("Replaced after review by a different folder with the same name.")
+            }
             if let old = node.modified, let now = live.modified, !sameInstant(old, now) {
                 return .changed("This folder changed after you added it. Review its updated contents.")
             }
@@ -187,6 +190,8 @@ nonisolated enum CleanupService {
                     return .changed("\(name) inside it changed after review. Review the folder again.")
                 case .tooLarge:
                     return .blocked("Too many items to verify before moving. Move it in Finder.")
+                case .unreadable(let name):
+                    return .blocked("\(name) inside it could not be checked. Move it in Finder.")
                 case .unchanged:
                     break
                 }
@@ -204,26 +209,29 @@ nonisolated enum CleanupService {
         return .ok
     }
 
-    enum DescendantCheck: Equatable { case unchanged, changed(String), tooLarge }
+    enum DescendantCheck: Equatable { case unchanged, changed(String), tooLarge, unreadable(String) }
 
     /// Walks every descendant and reports the first whose content or
-    /// attribute date is later than `since` (plus one second of slack for
-    /// filesystems that round). Bounded so cleanup never hangs.
+    /// attribute date is later than `since`. Strict: nothing after staging
+    /// is tolerated. Fails closed when anything cannot be read, and is
+    /// bounded so cleanup never hangs.
     static func newestDescendantChange(in folder: URL, since: Date, limit: Int = 1_000_000) -> DescendantCheck {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .attributeModificationDateKey]
-        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys,
-                                                          options: [], errorHandler: { _, _ in true }) else {
-            return .unchanged
+        final class Failure: @unchecked Sendable { var name: String? }
+        let failure = Failure()
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys, options: [],
+                                                          errorHandler: { url, _ in failure.name = url.lastPathComponent; return false }) else {
+            return .unreadable(folder.lastPathComponent)
         }
-        let threshold = since.addingTimeInterval(1)
         var seen = 0
         for case let url as URL in walker {
             seen += 1
             if seen > limit { return .tooLarge }
-            guard let v = try? url.resourceValues(forKeys: Set(keys)) else { continue }
-            if let m = v.contentModificationDate, m > threshold { return .changed(url.lastPathComponent) }
-            if let a = v.attributeModificationDate, a > threshold { return .changed(url.lastPathComponent) }
+            guard let v = try? url.resourceValues(forKeys: Set(keys)) else { return .unreadable(url.lastPathComponent) }
+            if let m = v.contentModificationDate, m > since { return .changed(url.lastPathComponent) }
+            if let a = v.attributeModificationDate, a > since { return .changed(url.lastPathComponent) }
         }
+        if let name = failure.name { return .unreadable(name) }
         return .unchanged
     }
 

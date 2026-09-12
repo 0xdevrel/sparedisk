@@ -17,8 +17,15 @@ nonisolated struct StorageSummary: Equatable {
     var parts: [Part]
     /// Used bytes outside every scanned location on this volume.
     var other: Int64
+    /// How far the scanned folders exceed what the disk reports as used.
+    /// Shown, never hidden: it points at clones, sparse files or a stale
+    /// scan.
+    var overshoot: Int64
     /// Scanned locations on other volumes, shown separately.
     var elsewhere: [SDLocation]
+
+    /// Length of the whole bar: capacity, or more when the parts do not fit.
+    var scale: Int64 { max(volume.capacityBytes, parts.reduce(0) { $0 + $1.bytes } + other + volume.availableBytes) }
 
     /// Locations that share `volume`'s disk. Falls back to matching capacity
     /// when the UUID is unknown, so older entries still group sensibly.
@@ -48,13 +55,14 @@ nonisolated struct StorageSummary: Equatable {
         var parts: [Part] = []
         var accounted: Int64 = 0
         for loc in topLevel(onVolume) {
-            let bytes = min(scanned(loc) ?? 0, max(0, used - accounted))
+            let bytes = scanned(loc) ?? 0
             let rank = locations.firstIndex(where: { $0.id == loc.id }) ?? 0
             parts.append(Part(id: loc.id, name: loc.name, bytes: bytes, rank: rank))
             accounted += bytes
         }
         return StorageSummary(volume: volume, used: used, parts: parts,
-                              other: max(0, used - accounted), elsewhere: elsewhere)
+                              other: max(0, used - accounted), overshoot: max(0, accounted - used),
+                              elsewhere: elsewhere)
     }
 
     /// Logical bytes by file kind across scans, nested locations counted
@@ -80,7 +88,7 @@ extension AppState {
     /// On-disk bytes for a scan, falling back to logical size for results
     /// saved before allocation was tracked.
     func diskBytes(_ scan: ScanResult) -> Int64 {
-        scan.totalAllocated > 0 ? scan.totalAllocated : scan.totalBytes
+        scan.allocationTracked ? scan.totalAllocated : scan.totalBytes
     }
 
     var storageSummary: StorageSummary? {

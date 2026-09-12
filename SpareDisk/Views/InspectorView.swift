@@ -336,7 +336,9 @@ private struct StorageInspector: View {
                 }
             }
             .font(SDTheme.Font.secondary)
-            Text("Sizes on disk. Other used is everything outside the scanned folders.")
+            Text(summary.overshoot > 0
+                 ? "Sizes on disk. Scanned folders exceed the used figure by \(SDFormat.bytesString(summary.overshoot)); see My Mac."
+                 : "Sizes on disk. Other used is everything outside the scanned folders.")
                 .font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
         }
     }

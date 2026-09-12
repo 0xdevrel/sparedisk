@@ -12,6 +12,15 @@ struct ScanDiffTests {
                    itemCount: items, topNodes: nodes, issues: issues, startedAt: at, finishedAt: at, wasCancelled: false)
     }
 
+    @Test func unreadableRootKeepsEveryEntryOutOfRemoved() {
+        let prev = result([node("a", 100), node("b", 200)], items: 5, at: Date(timeIntervalSince1970: 0))
+        let cur = result([], items: 0, at: Date(timeIntervalSince1970: 60),
+                         issues: [ScanIssue(path: "/r", message: "Permission denied")])
+        let d = ScanDiff.between(previous: prev, current: cur)
+        #expect(d.changes.count == 2)
+        #expect(d.changes.allSatisfy { $0.kind == "Unreadable" })
+    }
+
     @Test func unreadableIsNotReportedAsRemoved() {
         let prev = result([node("a", 100), node("locked", 500)], items: 5, at: Date(timeIntervalSince1970: 0))
         let cur = result([node("a", 100)], items: 1, at: Date(timeIntervalSince1970: 60),

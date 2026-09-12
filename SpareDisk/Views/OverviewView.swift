@@ -82,7 +82,7 @@ struct OverviewView: View {
                     Text("\(SDFormat.bytesString(s.volume.availableBytes)) available of \(SDFormat.bytesString(s.volume.capacityBytes))")
                         .font(SDTheme.Font.body).foregroundStyle(.secondary)
                 }
-                SegmentedCapacityBar(segments: segments(s), capacity: s.volume.capacityBytes)
+                SegmentedCapacityBar(segments: segments(s), capacity: s.scale)
                     .frame(height: 14)
                 HStack(alignment: .top, spacing: 14) {
                     FlowLayout(spacing: 14, rowSpacing: 4) {
@@ -105,6 +105,10 @@ struct OverviewView: View {
                         }
                 }
                 .font(SDTheme.Font.secondary)
+                if s.overshoot > 0 {
+                    Text("The scanned folders report \(SDFormat.bytesString(s.overshoot)) more than the disk shows as used. Cloned and sparse files occupy less than they add up to, and a rescan refreshes stale figures.")
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                }
                 if !s.elsewhere.isEmpty {
                     Text("On other disks: " + s.elsewhere.map { loc in
                         "\(loc.name) \(SDFormat.bytesString(app.scans[loc.id].map(app.diskBytes) ?? 0))"
@@ -285,9 +289,9 @@ private struct LocationRow: View {
             Spacer()
             if let scan {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(SDFormat.bytesString(scan.totalAllocated > 0 ? scan.totalAllocated : scan.totalBytes))
+                    Text(SDFormat.bytesString(scan.allocationTracked ? scan.totalAllocated : scan.totalBytes))
                         .font(.system(size: 14, weight: .medium).monospacedDigit())
-                    Text(scan.totalAllocated > 0 ? "on disk" : "logical").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                    Text(scan.allocationTracked ? "on disk" : "logical").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 }
                 .frame(width: 100, alignment: .trailing)
             }

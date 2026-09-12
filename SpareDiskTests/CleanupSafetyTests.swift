@@ -131,11 +131,29 @@ struct CleanupRevalidationTests {
         let staged = Date()
         #expect(CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, stagedAt: staged) == .ok)
 
-        // Two levels down: the folder's own date does not move.
-        try await Task.sleep(for: .seconds(1.2))
+        // Two levels down, right away: the folder's own date does not move
+        // and there is no grace period.
+        try await Task.sleep(for: .milliseconds(20))
         try Data(repeating: 9, count: 10).write(to: deep.appendingPathComponent("a.bin"))
         let after = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, stagedAt: staged)
         guard case .changed = after else { Issue.record("expected .changed, got \(after)"); return }
+    }
+
+    @Test func unreadableDescendantBlocksTheMove() async throws {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let root = base.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        let locked = root.appendingPathComponent("Project/locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 64).write(to: locked.appendingPathComponent("x.bin"))
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
+        let project = try #require(result.topNodes.first(where: { $0.name == "Project" }))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        let verdict = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, stagedAt: Date())
+        guard case .blocked = verdict else { Issue.record("expected .blocked, got \(verdict)"); return }
     }
 
     @Test func savedScanKeepsSubSecondDatesAndBrowseIdentity() async throws {

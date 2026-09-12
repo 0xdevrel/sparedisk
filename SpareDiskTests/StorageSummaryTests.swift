@@ -28,10 +28,23 @@ struct StorageSummaryTests {
         #expect(s.parts[0].bytes + s.other == s.used)
     }
 
-    @Test func partsNeverExceedUsedSpace() {
-        // Logical totals can exceed the used figure (clones, sparse files).
+    @Test func excessOverUsedSpaceIsReportedNotTruncated() {
+        // Scanned totals can exceed the used figure (clones, sparse files, stale scan).
         let s = StorageSummary.make(locations: [loc("/Users/m", capacity: 1000, available: 900)]) { _ in 5000 }!
-        #expect(s.parts[0].bytes == 100)
+        #expect(s.parts[0].bytes == 5000)
         #expect(s.other == 0)
+        #expect(s.overshoot == 4900)
+        #expect(s.scale == 5900)
+    }
+
+    @Test func untrackedAllocationIsNotZero() {
+        let old = ScanResult(locationID: "/x", rootName: "x", totalBytes: 500, totalAllocated: 0, itemCount: 1,
+                             topNodes: [ScanNode(id: "n", name: "n", path: "/x/n", isFolder: false, category: .other,
+                                                 logicalBytes: 500, modified: nil, childCount: 0)],
+                             issues: [], startedAt: Date(), finishedAt: Date(), wasCancelled: false)
+        #expect(old.allocationTracked == false)
+        var fresh = old
+        fresh.topNodes[0].allocatedBytes = 0
+        #expect(fresh.allocationTracked == true)
     }
 }

@@ -43,6 +43,25 @@ struct ScanEngineTests {
         #expect(result.categoryBytes.values.reduce(0, +) == result.totalBytes)
     }
 
+    @Test func hardLinkAcrossFoldersCountsOnceInEveryTotal() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for top in ["a", "b", "c", "d"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(top), withIntermediateDirectories: true)
+        }
+        let original = root.appendingPathComponent("a/movie.mp4")
+        try Data(repeating: 7, count: 4096).write(to: original)
+        try FileManager.default.linkItem(at: original, to: root.appendingPathComponent("b/movie.mp4"))
+        try FileManager.default.linkItem(at: original, to: root.appendingPathComponent("c/movie.mp4"))
+        try Data(repeating: 1, count: 100).write(to: root.appendingPathComponent("d/notes.txt"))
+
+        let result = await ScanEngine.scan(locationID: "t", rootName: "T", root: root) { _ in }
+        #expect(result.totalBytes == 4096 + 100)
+        // Category totals reconcile hard links the same way the grand total does.
+        #expect(result.categoryBytes.values.reduce(0, +) == result.totalBytes)
+        #expect(result.categoryBytes[SDFileCategory.media.rawValue] == 4096)
+    }
+
     @Test func scanStampsStableIdentityOnCandidates() async throws {
         let root = try makeFixture()
         defer { try? FileManager.default.removeItem(at: root) }

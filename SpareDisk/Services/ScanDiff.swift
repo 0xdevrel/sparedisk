@@ -35,9 +35,11 @@ nonisolated struct ScanDiff: Hashable {
     static func between(previous: ScanResult, current: ScanResult) -> ScanDiff {
         let old = Dictionary(previous.topNodes.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
         let new = Dictionary(current.topNodes.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+        // An issue on the item, inside it, or on any ancestor (the location
+        // root included) means the current scan simply could not see it.
         let unreadable = current.issues.map(\.path)
         func touchedByIssue(_ path: String) -> Bool {
-            unreadable.contains { $0 == path || CleanupService.isWithin($0, root: path) }
+            unreadable.contains { $0 == path || CleanupService.isWithin($0, root: path) || CleanupService.isWithin(path, root: $0) }
         }
         var changes: [ScanChange] = []
         for (path, n) in new {

@@ -50,6 +50,11 @@ nonisolated struct ScanResult: Hashable, Codable {
 
     var elapsed: TimeInterval { finishedAt.timeIntervalSince(startedAt) }
 
+    /// Whether this scan recorded allocation at all. Results saved before
+    /// allocation was tracked have none, and must not be mistaken for a
+    /// folder that genuinely occupies nothing on disk.
+    var allocationTracked: Bool { totalAllocated > 0 || topNodes.contains { $0.allocatedBytes != nil } }
+
     init(locationID: String, rootName: String, totalBytes: Int64, totalAllocated: Int64 = 0,
          categoryBytes: [String: Int64] = [:], itemCount: Int,
          topNodes: [ScanNode], largestFiles: [ScanNode] = [], oldestFiles: [ScanNode] = [], issues: [ScanIssue],
@@ -236,6 +241,7 @@ nonisolated enum ScanEngine {
         var sub: String?
         var bytes: Int64
         var alloc: Int64
+        var cat: SDFileCategory
     }
 
     fileprivate final class ParallelWalk: @unchecked Sendable {
@@ -364,7 +370,8 @@ nonisolated enum ScanEngine {
                         duplicateLink = true
                     } else {
                         links[key] = LinkHit(top: String(top), sub: second.map { String(top) + "/" + String($0) },
-                                             bytes: st.size, alloc: st.allocated)
+                                             bytes: st.size, alloc: st.allocated,
+                                             cat: ScanEngine.category(name: name, ext: ext, isDir: false))
                     }
                 }
                 let bytes = st.isDir || duplicateLink ? 0 : st.size
@@ -442,6 +449,7 @@ nonisolated enum ScanEngine {
                     if seen[id] == true {
                         out.total -= hit.bytes
                         out.totalAlloc -= hit.alloc
+                        out.byCategory[hit.cat, default: 0] -= hit.bytes
                         out.agg[hit.top]?.bytes -= hit.bytes
                         out.agg[hit.top]?.alloc -= hit.alloc
                         if let sub = hit.sub {
