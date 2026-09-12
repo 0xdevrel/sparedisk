@@ -141,6 +141,16 @@ extension AppState {
         // Reconcile: moved items leave, whichever id staged them, plus
         // anything nested under a moved folder.
         reviewItems = CleanupService.remaining(reviewItems, afterMoving: moved)
+        // Moved leftovers leave their groups; an emptied group disappears.
+        let movedPaths = moved.map { CleanupService.standardized($0.path) }
+        leftoverGroups = leftoverGroups.compactMap { g in
+            var g = g
+            g.items.removeAll { item in
+                let p = CleanupService.standardized(item.path)
+                return movedPaths.contains { $0 == p || CleanupService.isWithin(p, root: $0) }
+            }
+            return g.items.isEmpty ? nil : g
+        }
     }
 
     @MainActor

@@ -13,13 +13,22 @@ struct SunburstView: View {
     var rootTitle: String?
     /// Sector under the pointer and where the pointer is, for the hover label.
     @State private var hovered: (id: String, point: CGPoint)?
+    /// Layout is angles only, so it is computed when its inputs change and
+    /// not on every hover event.
+    @State private var sectors: [Sector] = []
+
+    /// Everything the layout depends on.
+    private var layoutKey: String {
+        let ids = levelNodes.map { "\($0.id):\(app.bytes($0)):\($0.children?.count ?? -1)" }.joined(separator: "|")
+        return "\(app.mapColor.rawValue)|\(app.sizeBasis.rawValue)|\(scheme == .dark)|\(focus?.id ?? "")|\(ids)"
+    }
     @FocusState private var mapHasFocus: Bool
 
     /// A flat list of files has nothing for an outer ring, so the one ring
     /// takes the whole radius instead of leaving an empty band.
     private var singleRing: Bool { levelNodes.allSatisfy { !$0.isFolder || $0.isPackage } }
 
-    private struct Sector: Identifiable {
+    private struct Sector: Identifiable, Equatable {
         let id: String
         let node: ScanNode?
         let parentID: String
@@ -44,7 +53,6 @@ struct SunburstView: View {
             header
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height) - 24
-                let sectors = layout()
                 ZStack {
                     Canvas { ctx, size in
                         let c = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -56,11 +64,17 @@ struct SunburstView: View {
                             path.closeSubpath()
                             let selected = !s.isRest && s.node != nil && s.node?.id == app.inspectedNodeID
                             let isHovered = hovered?.id == s.id
-                            ctx.fill(path, with: .color(s.color.opacity(selected || isHovered ? 1 : 0.85)))
+                            ctx.fill(path, with: .color(s.color.opacity(SDTheme.mapFillOpacity(scheme: scheme, emphasized: selected || isHovered))))
                             if s.end - s.start > 0.02 {
                                 ctx.stroke(path, with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: selected ? 0 : 1.5)
+                                // A faint edge so every boundary reads even when a fill
+                                // sits close to the background.
+                                ctx.stroke(path, with: .color(.primary.opacity(scheme == .dark ? 0.22 : 0.14)), lineWidth: 0.75)
                             }
-                            if selected { ctx.stroke(path, with: .color(.accentColor), lineWidth: 2.5) }
+                            if selected {
+                                ctx.stroke(path, with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: 6)
+                                ctx.stroke(path, with: .color(.accentColor), lineWidth: 2.5)
+                            }
                             else if isHovered { ctx.stroke(path, with: .color(.primary.opacity(0.55)), lineWidth: 1.5) }
                         }
                     }
@@ -104,6 +118,7 @@ struct SunburstView: View {
                     return .handled
                 }
                 .onKeyPress(.space) { if let n = app.inspectedNode { app.preview(n) }; return .handled }
+                .onChange(of: layoutKey, initial: true) { _, _ in sectors = layout() }
                 .accessibilityLabel("Sunburst of \(levelNodes.count) items, \(SDFormat.bytesString(levelNodes.reduce(0) { $0 + app.bytes($1) }))")
                 // Assistive technology gets one element per sector with the
                 // same actions the pointer has.
@@ -150,7 +165,7 @@ struct SunburstView: View {
             if app.mapColor == .folder {
                 Text(singleRing ? "Each file in proportion to its size. Grey: smaller items, click for the list."
                      : "Inner ring: this level. Outer ring: inside each folder. Grey: smaller items, click for the list.")
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             } else {
                 MapColorLegend().font(.system(size: 11)).foregroundStyle(.secondary)
             }
@@ -175,7 +190,7 @@ struct SunburstView: View {
                 Text("\(levelNodes.count) items").font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if !app.mapTrail.isEmpty {
-                Text("Click to go up").font(.system(size: 10)).foregroundStyle(.tertiary)
+                Text("Click to go up").font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
         .frame(width: inner * 1.6)
@@ -270,9 +285,10 @@ struct SunburstView: View {
         }
         var out: [Sector] = []
         var angle = 0.0
-        for (i, n) in level.enumerated() {
+        let hues = SDTheme.folderHues(for: level, bytes: app.bytes)
+        for n in level {
             let span = 2 * .pi * Double(app.bytes(n)) / Double(total)
-            let comps = components(for: n, rank: i)
+            let comps = SDTheme.mapComponents(for: n, mode: app.mapColor, scheme: scheme, hue: hues[n.id])
             let color = Color(red: comps.r, green: comps.g, blue: comps.b)
             out.append(Sector(id: n.id, node: n, parentID: "", bytes: app.bytes(n), ring: 0, start: angle, end: angle + span, color: color))
             // Outer ring: children wide enough to read get their own sector;
@@ -284,11 +300,11 @@ struct SunburstView: View {
             var a = angle
             var shown: Int64 = 0
             if span >= Self.minParentSpanForChildren {
-                for (j, k) in kids.enumerated() {
+                for k in kids {
                     let ks = span * Double(app.bytes(k)) / Double(parentBytes)
                     guard ks >= Self.minChildSpan else { break }
                     out.append(Sector(id: k.id, node: k, parentID: n.id, bytes: app.bytes(k), ring: 1, start: a, end: a + ks,
-                                      color: childColor(parent: comps, node: k, index: j)))
+                                      color: childColor(parent: comps, node: k)))
                     a += ks
                     shown += app.bytes(k)
                 }
@@ -302,37 +318,15 @@ struct SunburstView: View {
         if restCount > 0 {
             let span = 2 * .pi * Double(restBytes) / Double(total)
             out.append(Sector(id: "__other", node: nil, parentID: "", bytes: restBytes, ring: 0,
-                              start: angle, end: angle + span, color: Color.primary.opacity(0.18)))
+                              start: angle, end: angle + span,
+                              color: { let c = SDTheme.neutralComponents(scheme: scheme); return Color(red: c.r, green: c.g, blue: c.b) }()))
         }
         return out
     }
 
-    private func components(for node: ScanNode, rank: Int) -> (r: Double, g: Double, b: Double) {
-        switch app.mapColor {
-        case .folder: return SDTheme.hueComponents(rank, scheme: scheme)
-        case .type: return SDTheme.categoryComponents(node.category, scheme: scheme)
-        case .age: return SDTheme.ageComponents(bucket: SDTheme.ageBucket(for: node.modified), scheme: scheme)
-        }
-    }
-
-    private func color(for node: ScanNode, rank: Int) -> Color {
-        let c = components(for: node, rank: rank)
+    private func childColor(parent: SDTheme.RGB, node: ScanNode) -> Color {
+        let c = SDTheme.childMapComponents(for: node, parent: parent, mode: app.mapColor, scheme: scheme)
         return Color(red: c.r, green: c.g, blue: c.b)
-    }
-
-    /// Children read as lighter steps of their parent's hue, alternating so
-    /// neighbours separate without the dimming that made the outer ring
-    /// vanish against a dark background. Type and age modes keep their own
-    /// meaning and only alternate the step.
-    private func childColor(parent: (r: Double, g: Double, b: Double), node: ScanNode, index: Int) -> Color {
-        let base: (r: Double, g: Double, b: Double)
-        switch app.mapColor {
-        case .folder: base = parent
-        case .type: base = SDTheme.categoryComponents(node.category, scheme: scheme)
-        case .age: base = SDTheme.ageComponents(bucket: SDTheme.ageBucket(for: node.modified), scheme: scheme)
-        }
-        let lift = index % 2 == 0 ? 0.22 : 0.10
-        return Color(red: base.r + (1 - base.r) * lift, green: base.g + (1 - base.g) * lift, blue: base.b + (1 - base.b) * lift)
     }
 
     private func drill(_ node: ScanNode) {

@@ -183,7 +183,7 @@ struct TreemapView: View {
         let rect = CGRect(origin: .zero, size: size)
         let (entries, frames) = layout(levelNodes, in: rect)
         let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.node.id, $0) })
-        let rank = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($0.element.node.id, $0.offset) })
+        let hues = SDTheme.folderHues(for: entries.filter { !$0.isOther }.map(\.node), bytes: app.bytes)
         return ZStack(alignment: .topLeading) {
             ForEach(frames, id: \.id) { frame in
                 if let entry = byID[frame.id] {
@@ -192,7 +192,7 @@ struct TreemapView: View {
                         if entry.isOther {
                             otherCell(entry: entry, rect: r)
                         } else {
-                            cell(node: entry.node, rect: r, hue: rank[entry.node.id] ?? 0)
+                            cell(node: entry.node, rect: r, hue: hues[entry.node.id])
                         }
                     }
                     .frame(width: max(0, r.width), height: max(0, r.height))
@@ -252,7 +252,7 @@ struct TreemapView: View {
         }
     }
 
-    private func cell(node: ScanNode, rect: CGRect, hue: Int) -> some View {
+    private func cell(node: ScanNode, rect: CGRect, hue: Int?) -> some View {
         let isSelected = selected(node)
         let isHovered = hoveredID == node.id
         let labels = plan(for: rect)
@@ -280,15 +280,13 @@ struct TreemapView: View {
                 ForEach(childFrames, id: \.id) { frame in
                     if let entry = nestedByID[frame.id] {
                         let r = frame.rect.insetBy(dx: 1, dy: 1)
-                        nestedCell(entry: entry, rect: r)
+                        nestedCell(entry: entry, rect: r, parent: fillComponents(for: node, hue: hue))
                             .frame(width: max(0, r.width), height: max(0, r.height))
                             .position(x: frame.rect.midX, y: frame.rect.midY)
                     }
                 }
             }
-            Rectangle()
-                .stroke(isSelected ? Color.accentColor : Color.primary.opacity(isHovered ? 0.35 : 0.12),
-                        lineWidth: isSelected ? 2 : 1)
+            selectionBorder(selected: isSelected, hovered: isHovered, in: rect.size)
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { if embedded { open(node) } else { drill(node) } }
@@ -314,7 +312,7 @@ struct TreemapView: View {
                 Text(app.hasDiskHint(node)
                      ? "\(SDFormat.bytesString(node.logicalBytes)), \(SDFormat.bytesString(node.allocatedBytes ?? 0)) on disk"
                      : SDFormat.bytesString(app.bytes(node)))
-                    .font(.system(size: 11).monospacedDigit()).opacity(0.85).lineLimit(1)
+                    .font(.system(size: 11).monospacedDigit()).lineLimit(1)
             case .nameOnly:
                 Text(node.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
             case .sizeOnly:
@@ -346,30 +344,34 @@ struct TreemapView: View {
         return out
     }
 
-    private func nestedCell(entry: Entry, rect: CGRect) -> some View {
+    private func nestedCell(entry: Entry, rect: CGRect, parent: SDTheme.RGB) -> some View {
         let kid = entry.node
         let isSelected = !entry.isOther && selected(kid)
         let isHovered = !entry.isOther && hoveredID == kid.id
+        let base = entry.isOther ? SDTheme.foldedComponents(scheme: scheme)
+            : SDTheme.childMapComponents(for: kid, parent: parent, mode: app.mapColor, scheme: scheme)
+        let fill = SDTheme.effectiveFill(base, alpha: SDTheme.mapFillOpacity(scheme: scheme, emphasized: isHovered || isSelected), scheme: scheme)
+        let ink = SDTheme.labelColor(over: fill)
         let showBoth = rect.width >= 72 && rect.height >= 32
         let showName = !showBoth && rect.width >= 56 && rect.height >= 16
         let showSize = !showBoth && !showName && rect.width >= 52 && rect.height >= 16
         return ZStack(alignment: .topLeading) {
-            Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(entry.isOther ? 0.30 : (isHovered || isSelected ? 0.62 : 0.45)))
+            Rectangle().fill(Color(red: fill.r, green: fill.g, blue: fill.b))
             if showBoth {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(kid.name).font(.system(size: 10, weight: .medium)).lineLimit(1)
                     Text(SDFormat.bytesString(app.bytes(kid))).font(.system(size: 10).monospacedDigit())
-                        .foregroundStyle(.secondary).lineLimit(1)
+                        .lineLimit(1)
                 }
-                .foregroundStyle(entry.isOther ? .secondary : .primary)
+                .foregroundStyle(ink)
                 .padding(.horizontal, 4).padding(.top, 2)
             } else if showName || showSize {
                 Text(showName ? kid.name : SDFormat.bytesString(app.bytes(kid)))
                     .font(.system(size: 10).monospacedDigit()).lineLimit(1)
-                    .foregroundStyle(entry.isOther ? .secondary : .primary)
+                    .foregroundStyle(ink)
                     .padding(.horizontal, 4).padding(.top, 2)
             }
-            Rectangle().stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.10), lineWidth: isSelected ? 2 : 1)
+            selectionBorder(selected: isSelected, hovered: isHovered, in: rect.size)
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { if !entry.isOther { if embedded { open(kid) } else { drill(kid) } } }
@@ -385,7 +387,7 @@ struct TreemapView: View {
     private func otherCell(entry: Entry, rect: CGRect) -> some View {
         let labels = plan(for: rect)
         return ZStack(alignment: .topLeading) {
-            Rectangle().fill(Color.primary.opacity(hoveredID == entry.node.id ? 0.12 : 0.07))
+            Rectangle().fill({ let c = SDTheme.foldedComponents(scheme: scheme); return Color(red: c.r, green: c.g, blue: c.b) }())
             if labels != .none {
                 VStack(alignment: .leading, spacing: 0) {
                     if labels != .sizeOnly {
@@ -393,7 +395,7 @@ struct TreemapView: View {
                     }
                     if labels != .nameOnly {
                         Text(SDFormat.bytesString(app.bytes(entry.node)))
-                            .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                            .font(.system(size: 11).monospacedDigit()).lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 5)
@@ -401,6 +403,7 @@ struct TreemapView: View {
             }
             Rectangle().stroke(Color.primary.opacity(0.12), lineWidth: 1)
         }
+        .foregroundStyle(SDTheme.labelColor(over: SDTheme.foldedComponents(scheme: scheme)))
         .contentShape(Rectangle())
         .onTapGesture { showInList() }
         .focusable()
@@ -415,26 +418,36 @@ struct TreemapView: View {
 
     // MARK: - Helpers
 
-    /// Base color of a cell under the current color mode, before opacity.
-    private func fillComponents(for node: ScanNode, hue: Int) -> (r: Double, g: Double, b: Double) {
-        switch app.mapColor {
-        case .folder: return SDTheme.hueComponents(hue, scheme: scheme)
-        case .type: return SDTheme.categoryComponents(node.category, scheme: scheme)
-        case .age: return SDTheme.ageComponents(bucket: SDTheme.ageBucket(for: node.modified), scheme: scheme)
-        }
+    private func fillComponents(for node: ScanNode, hue: Int?) -> SDTheme.RGB {
+        SDTheme.mapComponents(for: node, mode: app.mapColor, scheme: scheme, hue: hue)
     }
 
-    /// Cell fill under the current color mode.
-    private func fill(for node: ScanNode, hue: Int, emphasized: Bool) -> Color {
+    private func fill(for node: ScanNode, hue: Int?, emphasized: Bool) -> Color {
         let c = fillComponents(for: node, hue: hue)
-        return Color(red: c.r, green: c.g, blue: c.b).opacity(SDTheme.mapFillOpacity(scheme: scheme, emphasized: emphasized))
+        return Color(red: c.r, green: c.g, blue: c.b)
+            .opacity(SDTheme.mapFillOpacity(scheme: scheme, emphasized: emphasized))
     }
 
-    /// Label color chosen against what the cell actually shows, so type and
-    /// age fills read as well as the folder hues.
-    private func labelColor(for node: ScanNode, hue: Int, emphasized: Bool) -> Color {
+    private func labelColor(for node: ScanNode, hue: Int?, emphasized: Bool) -> Color {
         let alpha = SDTheme.mapFillOpacity(scheme: scheme, emphasized: emphasized)
         return SDTheme.labelColor(over: SDTheme.effectiveFill(fillComponents(for: node, hue: hue), alpha: alpha, scheme: scheme))
+    }
+
+    /// A neutral keyline separates the accent from similarly coloured cells.
+    /// Both lines shrink with the cell so a small cell keeps its content.
+    private func selectionBorder(selected: Bool, hovered: Bool, in size: CGSize) -> some View {
+        let short = min(size.width, size.height)
+        let keyline: CGFloat = short >= 80 ? 5 : short >= 40 ? 3 : 2
+        let accent: CGFloat = short >= 40 ? 2 : 1.5
+        return ZStack {
+            if selected {
+                Rectangle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: keyline)
+                Rectangle().strokeBorder(Color.accentColor, lineWidth: accent)
+            } else {
+                Rectangle().strokeBorder(Color.primary.opacity(hovered ? 0.5 : 0.12), lineWidth: 1)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     private var legend: some View { MapColorLegend() }
@@ -492,6 +505,10 @@ struct MapColorLegend: View {
             }
         case .age:
             FlowLayout(spacing: 10, rowSpacing: 2) {
+                HStack(spacing: 4) {
+                    Circle().fill(SDTheme.ageColor(bucket: -1, scheme: scheme)).frame(width: 8, height: 8)
+                    Text("Unknown date")
+                }
                 ForEach(Array(SDTheme.ageBuckets.enumerated()), id: \.offset) { i, b in
                     HStack(spacing: 4) {
                         Circle().fill(SDTheme.ageColor(bucket: i, scheme: scheme)).frame(width: 8, height: 8)

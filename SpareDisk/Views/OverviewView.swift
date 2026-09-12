@@ -22,6 +22,7 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: SDTheme.Space.xl) {
                 if let err = app.scanError { IssueBanner(text: err) }
                 if app.hasRealData {
+                    scanStatus
                     volumeSection
                     if !typeTotals.isEmpty { typesSection }
                     locationsSection
@@ -41,13 +42,33 @@ struct OverviewView: View {
         }
     }
 
+    private var scanStatus: some View {
+        HStack(spacing: 10) {
+            if app.isScanning {
+                ProgressView().controlSize(.small)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Scanning \(app.locations.first(where: { $0.id == app.scanningLocationID })?.name ?? "location")…")
+                        .font(SDTheme.Font.body.weight(.medium))
+                    Text("\((app.scanProgress?.itemsFound ?? 0).formatted()) items found" +
+                         (app.scanQueue.isEmpty ? "" : " · \(app.scanQueue.count) locations waiting"))
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Scans cover the folders you choose. Rescan to refresh their sizes.")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .accessibilityIdentifier("overview-scan-status")
+    }
+
     // MARK: - First launch
 
     private var firstLaunch: some View {
         VStack(spacing: SDTheme.Space.lg) {
             VStack(spacing: 8) {
                 Text("See where your space goes.").font(SDTheme.Font.screenTitle)
-                Text("Pick what to analyze. SpareDisk maps what is inside, and nothing moves until you review it and confirm.")
+                Text("Start with your Home folder. Choose it in the macOS dialog and scanning starts immediately. Add other folders or disks whenever you want.")
                     .font(SDTheme.Font.body).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 460)
@@ -62,7 +83,7 @@ struct OverviewView: View {
                           detail: "Any folder or external drive. Pick several at once.") { Task { await app.addLocationFlow() } }
             }
             .frame(maxWidth: 720)
-            Text("macOS asks once before a protected folder is read. Nothing leaves this Mac.")
+            Text("Only folders you choose are scanned. Nothing leaves this Mac, and nothing moves without your confirmation.")
                 .font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
@@ -295,28 +316,44 @@ private struct LocationRow: View {
                 }
                 .frame(width: 100, alignment: .trailing)
             }
-            if scanning {
-                ProgressView().controlSize(.small).frame(width: 90)
-            } else if scan == nil {
-                Button("Scan") { app.activeLocationID = location.id; app.rescanActive() }
-                    .buttonStyle(.borderedProminent).frame(width: 90)
-            } else {
-                Button("Open") { app.selection = .location(location.id) }
-                    .frame(width: 90)
+            // One fixed-width slot for every state, so rows line up whether
+            // they show a spinner, a single button or two.
+            HStack(spacing: 8) {
+                if scanning {
+                    ProgressView().controlSize(.small)
+                } else if app.scanQueue.contains(location.id) {
+                    Text("Queued").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                } else if !location.access.isOK {
+                    Button("Reconnect…") { Task { await app.addLocationFlow(startingAt: URL(fileURLWithPath: location.id)) } }
+                } else {
+                    // Open is the destination; scanning is maintenance.
+                    if scan == nil {
+                        Button("Scan") { app.scanLocation(id: location.id) }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityLabel("Scan \(location.name)")
+                    } else {
+                        Button("Rescan") { app.scanLocation(id: location.id) }
+                            .accessibilityLabel("Rescan \(location.name)")
+                        Button("Open") { app.selection = .location(location.id) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
             }
+            .frame(width: 176, alignment: .trailing)
         }
         .frame(height: 56)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { app.selection = .location(location.id) }
         .contextMenu {
             Button("Open") { app.selection = .location(location.id) }
-            Button("Rescan") { app.activeLocationID = location.id; app.rescanActive() }.disabled(scanning)
+            Button(scan == nil ? "Scan" : "Rescan") { app.scanLocation(id: location.id) }.disabled(scanning || app.scanQueue.contains(location.id))
             Divider()
             Button("Forget Location…", role: .destructive) { app.forgetLocation(id: location.id) }
         }
     }
 
     private var detail: String {
+        if app.scanQueue.contains(location.id) { return "Waiting to scan" }
         if scanning, let p = app.scanProgress { return "Scanning, \(p.itemsFound.formatted()) items" }
         if let scan {
             var s = "\(scan.itemCount.formatted()) items, scanned \(scan.finishedAt.formatted(.relative(presentation: .named)))"
@@ -352,7 +389,7 @@ private struct StartCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer(minLength: 0)
-                Text(prominent ? "Analyze" : "Choose…")
+                Text(prominent ? "Choose and Scan…" : "Choose…")
                     .font(SDTheme.Font.secondary.weight(.medium))
                     .foregroundStyle(prominent ? Color.accentColor : .primary)
             }

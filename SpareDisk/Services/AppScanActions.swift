@@ -9,6 +9,11 @@ extension AppState {
     @MainActor
     func setUpUITestFixtureIfRequested() -> Bool {
         guard CommandLine.arguments.contains("-uiTestFixture") else { return false }
+        if CommandLine.arguments.contains("-uiTestFirstLaunch") {
+            locations = []
+            scans = [:]
+            return true
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("UITestFixture", isDirectory: true)
         try? FileManager.default.removeItem(at: base)
@@ -127,14 +132,52 @@ extension AppState {
                               message: "Click Analyze to add Applications, or choose other folders.")
     }
 
+    var overviewScanTitle: String {
+        if locations.isEmpty { return "Scan My Mac…" }
+        return locations.allSatisfy { scans[$0.id] != nil } ? "Rescan" : "Scan"
+    }
+
+    /// Refresh every saved grant sequentially. First run still goes through
+    /// the system chooser: My Mac is an overview, not blanket disk access.
+    @MainActor
+    func scanOverview() async {
+        guard !isScanning else { return }
+        if locations.isEmpty { await addHomeFolderFlow(); return }
+        scanError = nil
+        scanQueue = locations.map(\.id)
+        startNextQueuedScan()
+    }
+
+    @MainActor
+    func scanLocation(id: String) {
+        guard locations.contains(where: { $0.id == id }), scanningLocationID != id else { return }
+        if !scanQueue.contains(id) { scanQueue.append(id) }
+        if !isScanning { startNextQueuedScan() }
+    }
+
+    @MainActor
+    func cancelAllScans() {
+        scanQueue.removeAll()
+        cancelScan()
+    }
+
     /// Start the next queued location after a scan finishes.
     @MainActor
     private func startNextQueuedScan() {
         while let next = scanQueue.first {
             scanQueue.removeFirst()
-            if let (url, _) = try? LocationAccessService.resolve(id: next) {
+            do {
+                let (url, stale) = try LocationAccessService.resolve(id: next)
+                if stale, let location = locations.first(where: { $0.id == next }) {
+                    refreshStoredAccess(id: next, url: url, name: location.name)
+                }
                 startScan(locationID: next, url: url)
                 return
+            } catch {
+                if let index = locations.firstIndex(where: { $0.id == next }) {
+                    locations[index].access = .reconnectRequired
+                    scanError = "Choose \(locations[index].name) again to restore access. Other locations can still be scanned."
+                }
             }
         }
     }
@@ -317,8 +360,7 @@ extension AppState {
                 worker.cancel()
             }
             guard gen == self.scanGeneration else {
-                // Superseded, but never leave this location marked as scanning.
-                if self.scanningLocationID == locationID { self.scanningLocationID = nil; self.scanProgress = nil }
+                // A newer run owns the progress, even for the same location.
                 return
             }
             self.applyScan(result, locationID: locationID, gen: gen)

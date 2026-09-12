@@ -39,6 +39,12 @@ struct LeftoversView: View {
                 }
             } trailing: {
                 SearchField(text: $app.searchText, prompt: "Search leftovers")
+                if !app.leftoverGroups.isEmpty {
+                    let all = filtered.flatMap(\.items).filter { app.canReview($0) }
+                    Button("Move All to Trash…") { app.requestTrash(all) }
+                        .disabled(all.isEmpty || app.cleanupRunning)
+                        .help("Checked again, then moved to the Trash after you confirm")
+                }
                 Button(app.leftoverGroups.isEmpty ? "Find Leftovers" : "Find Again") { app.findLeftovers() }
                     .buttonStyle(.borderedProminent)
                     .disabled(app.homeLocation == nil || app.leftoverRunning)
@@ -47,7 +53,7 @@ struct LeftoversView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "app.dashed").font(.largeTitle).foregroundStyle(.tertiary)
                     Text(app.leftoverRunning ? "Looking for data without an app…" : "No leftovers listed yet.").font(SDTheme.Font.body)
-                    Text("Containers, caches, preferences and saved state whose app is gone. Apple's own identifiers are not shown.")
+                    Text("Containers, caches, preferences and saved state whose app is gone. Apple's own identifiers are not shown. Moving to the Trash asks first and checks each item again.")
                         .font(SDTheme.Font.secondary).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .frame(maxWidth: 420)
                 }
@@ -86,11 +92,10 @@ struct LeftoversView: View {
                                 Spacer()
                                 Text("\(g.items.count) \(g.items.count == 1 ? "item" : "items"), \(SDFormat.bytesString(g.bytes))")
                                     .font(SDTheme.Font.secondary.monospacedDigit()).foregroundStyle(.secondary)
-                                Button(g.items.allSatisfy { app.isQueued($0.id) } ? "Staged" : "Stage for Review") {
-                                    app.addToReview(g.items, source: "Leftovers")
-                                }
-                                .buttonStyle(.link).font(SDTheme.Font.secondary)
-                                .disabled(g.items.allSatisfy { app.isQueued($0.id) })
+                                Button("Move to Trash…") { app.requestTrash(g.items) }
+                                    .buttonStyle(.link).font(SDTheme.Font.secondary)
+                                    .help("Checked again, then moved to the Trash after you confirm")
+                                    .disabled(!g.items.contains { app.canReview($0) } || app.cleanupRunning)
                             }
                         }
                     }
@@ -99,7 +104,7 @@ struct LeftoversView: View {
             }
             if !app.leftoverGroups.isEmpty {
                 Divider()
-                Text("No installed app claims these identifiers. Command-line tools and apps outside the usual folders can still own some of them, so check the name before staging.")
+                Text("No installed app claims these identifiers. Command-line tools and apps outside the usual folders can still own some of them, so check the name before moving anything.")
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                     .padding(.horizontal, SDTheme.Space.md).padding(.vertical, 6)
             }
