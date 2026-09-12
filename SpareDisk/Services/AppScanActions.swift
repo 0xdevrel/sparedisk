@@ -30,9 +30,30 @@ extension AppState {
         return true
     }
 
+    /// `-demoPath <folder>`: grant and scan one folder inside the container in
+    /// place of stored locations, for screenshots with neutral data.
+    @MainActor
+    func setUpDemoPathIfRequested() -> Bool {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "-demoPath"), i + 1 < args.count else { return false }
+        let url = URL(fileURLWithPath: args[i + 1])
+        guard let grant = try? LocationAccessService.persistGrant(for: url) else { return false }
+        locations = [Self.describe(id: grant.id, url: grant.url, access: .available)]
+        activeLocationID = grant.id
+        rebuildIndex()
+        if let saved = ScanStore.load(locationID: grant.id) {
+            scans[grant.id] = saved
+            rebuildIndex()
+        } else {
+            startScan(locationID: grant.id, url: grant.url)
+        }
+        return true
+    }
+
     @MainActor
     func restoreStoredLocations() {
         if setUpUITestFixtureIfRequested() { return }
+        if setUpDemoPathIfRequested() { return }
         for id in LocationAccessService.orderedIDs() {
             guard !locations.contains(where: { $0.id == id }) else { continue }
             do {

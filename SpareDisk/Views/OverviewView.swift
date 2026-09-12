@@ -193,7 +193,7 @@ struct OverviewView: View {
                         FileTypeIcon(node: node, size: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(node.name).font(SDTheme.Font.body).lineLimit(1)
-                            Text(node.path).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            Text(app.displayPath(node)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         if app.hasDiskHint(node) {

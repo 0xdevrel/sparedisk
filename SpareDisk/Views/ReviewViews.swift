@@ -89,7 +89,7 @@ struct ReviewQueueView: View {
                                     CategoryDot(category: item.node.category)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(item.node.name).font(SDTheme.Font.body)
-                                        Text(item.node.path).font(SDTheme.Font.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                        Text(app.displayPath(item.node)).font(SDTheme.Font.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                                         Text(item.risk).font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                                     }
                                     Spacer()
@@ -168,7 +168,7 @@ struct StatusBarView: View {
             }
             Spacer()
             if !app.reviewPlan.isEmpty {
-                Button("Review \(app.reviewPlan.count) items, \(SDFormat.bytesString(app.reviewPlanBytes))") {
+                Button("Review \(app.reviewPlan.count) \(app.reviewPlan.count == 1 ? "item" : "items"), \(SDFormat.bytesString(app.reviewPlanBytes))") {
                     app.selection = .review
                 }.buttonStyle(.link).font(SDTheme.Font.secondary)
             }

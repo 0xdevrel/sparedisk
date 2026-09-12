@@ -41,7 +41,7 @@ struct ContentView: View {
             let scanned = app.locations.filter { app.scans[$0.id] != nil }.count
             return app.locations.isEmpty ? "" : "\(scanned) of \(app.locations.count) locations scanned"
         case .review:
-            return app.reviewPlan.isEmpty ? "" : "\(app.reviewPlan.count) items, \(SDFormat.bytesString(app.reviewPlanBytes))"
+            return app.reviewPlan.isEmpty ? "" : "\(app.reviewPlan.count) \(app.reviewPlan.count == 1 ? "item" : "items"), \(SDFormat.bytesString(app.reviewPlanBytes))"
         case .duplicates:
             return app.duplicateGroups.isEmpty ? "" : "\(app.duplicateGroups.count) groups"
         default:

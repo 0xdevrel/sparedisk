@@ -174,7 +174,7 @@ struct DuplicatesView: View {
                             .help("In Review")
                     }
                 }
-                Text("\(file.path) · Modified \(SDFormat.date(file.modified))")
+                Text("\(app.displayPath(file)), modified \(SDFormat.date(file.modified))")
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }

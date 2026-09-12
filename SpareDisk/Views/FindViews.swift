@@ -41,7 +41,7 @@ struct LargeFilesView: View {
                             FileTypeIcon(node: node, size: 24)
                             VStack(alignment: .leading) {
                                 Text(node.name).font(SDTheme.Font.body)
-                                Text(node.path).font(SDTheme.Font.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                Text(app.displayPath(node)).font(SDTheme.Font.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             }
                             if node.isCloudPlaceholder {
                                 Image(systemName: "icloud").foregroundStyle(.secondary).help("Not downloaded")

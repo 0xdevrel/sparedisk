@@ -269,7 +269,7 @@ struct FileRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(node.name).font(SDTheme.Font.body).lineLimit(1)
                 if showPath {
-                    Text(node.path).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(app.displayPath(node)).font(.system(size: 11)).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }
             }

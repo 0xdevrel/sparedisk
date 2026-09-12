@@ -294,6 +294,16 @@ final class AppState {
         }
     }
 
+    /// Human path: the location's name followed by the path inside it,
+    /// so rows read "Home › Library › Caches" instead of a long absolute path.
+    func displayPath(_ node: ScanNode) -> String {
+        guard let loc = locations
+            .filter({ node.path == $0.id || CleanupService.isWithin(node.path, root: $0.id) })
+            .max(by: { $0.id.count < $1.id.count }) else { return node.path }
+        let rel = node.path.dropFirst(loc.id.count).split(separator: "/").map(String.init)
+        return ([loc.name] + rel.dropLast()).joined(separator: " › ")
+    }
+
     /// Every retained node inside a location whose name matches, for search
     /// across the whole retained tree rather than the top level only.
     func searchNodes(in locationID: String, matching text: String) -> [ScanNode] {
