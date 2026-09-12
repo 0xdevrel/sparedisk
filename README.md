@@ -13,9 +13,11 @@ SpareDisk is a sandboxed, SwiftUI-native macOS utility that analyzes folders **y
 
 ## Demo
 
-<video src="docs/sd.mp4" width="100%" controls muted loop playsinline>
-  Your browser does not support the video tag. You can download the demo <a href="docs/sd.mp4">here</a>.
+<video src="https://raw.githubusercontent.com/0xdevrel/sparedisk/main/docs/sd.mp4" poster="docs/sd-poster.jpg" width="100%" controls preload="metadata">
+  Your browser does not support the video tag. Watch it <a href="https://github.com/0xdevrel/sparedisk/blob/main/docs/sd.mp4">here</a>.
 </video>
+
+[![SpareDisk demo — click to watch](docs/sd-poster.jpg)](https://github.com/0xdevrel/sparedisk/blob/main/docs/sd.mp4)
 
 > ~1:42 screen recording (`docs/sd.mp4`, 1552×1080, H.264): My Mac overview with used-space total, per-type bar, location rows and volume donut → live scan with item-count progress → Large Files browsing → sunburst map drill-down into a location.
 
