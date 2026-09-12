@@ -67,7 +67,7 @@ struct InspectorView: View {
                 Button {
                     app.requestTrash(reviewable)
                 } label: {
-                    Label("Move to Trash", systemImage: "trash").frame(maxWidth: .infinity)
+                    Label("Move to Trash…", systemImage: "trash").frame(maxWidth: .infinity)
                 }
                 .disabled(reviewable.isEmpty)
             }
@@ -248,7 +248,7 @@ struct InspectorView: View {
                 Button {
                     app.requestTrash(node)
                 } label: {
-                    Label("Move to Trash", systemImage: "trash").frame(maxWidth: .infinity)
+                    Label("Move to Trash…", systemImage: "trash").frame(maxWidth: .infinity)
                 }
                 .disabled(!app.canReview(node))
                 .help("Checked again, then moved to the Trash (⌘⌫)")
