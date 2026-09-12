@@ -45,7 +45,7 @@ extension AppState {
         }
 
         var tokens: [URL] = []
-        for url in Set(scopes.values) where url.startAccessingSecurityScopedResource() {
+        for url in Set(scopes.values) where LocationAccessService.beginAccess(url) {
             tokens.append(url)
         }
         defer { tokens.forEach { $0.stopAccessingSecurityScopedResource() } }

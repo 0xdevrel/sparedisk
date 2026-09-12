@@ -19,7 +19,7 @@ extension AppState {
     @discardableResult
     func reveal(_ node: ScanNode) -> String? {
         guard let scope = scopeForNode(node),
-              scope.startAccessingSecurityScopedResource() else {
+              LocationAccessService.beginAccess(scope) else {
             return unreachableMessage
         }
         defer { scope.stopAccessingSecurityScopedResource() }
@@ -33,7 +33,7 @@ extension AppState {
     @discardableResult
     func preview(_ node: ScanNode) -> String? {
         guard let scope = scopeForNode(node),
-              scope.startAccessingSecurityScopedResource() else {
+              LocationAccessService.beginAccess(scope) else {
             return unreachableMessage
         }
         let u = URL(fileURLWithPath: node.path)

@@ -525,8 +525,12 @@ nonisolated enum SDFormat {
         String(format: "%.1f%%", fraction * 100)
     }
 
+    /// Dates before 1980 are placeholders left by archives and copies, never
+    /// a real modification, so they read as unknown wherever they appear.
+    static let earliestRealDate = Date(timeIntervalSince1970: 315_532_800) // 1980-01-01
+
     static func date(_ d: Date?) -> String {
-        guard let d else { return "Unknown date" }
+        guard let d, d >= earliestRealDate else { return "Unknown date" }
         return d.formatted(date: .abbreviated, time: .omitted)
     }
 }

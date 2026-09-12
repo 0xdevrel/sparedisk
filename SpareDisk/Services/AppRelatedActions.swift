@@ -26,7 +26,7 @@ extension AppState {
         let homePath = NSHomeDirectory()
         let key = "related#\(app.id)"
         relatedTask = Task {
-            let accessing = scope.startAccessingSecurityScopedResource()
+            let accessing = LocationAccessService.beginAccess(scope)
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
             let candidates = await Task.detached(priority: .userInitiated) {
                 RelatedDataService.candidates(appPath: appPath, home: homePath)

@@ -63,7 +63,7 @@ extension AppState {
             if scopes[loc.id] == nil {
                 do {
                     let (url, stale) = try LocationAccessService.resolve(id: loc.id)
-                    if stale, url.startAccessingSecurityScopedResource() {
+                    if stale, LocationAccessService.beginAccess(url) {
                         try? LocationAccessService.refreshedURL(id: loc.id, url: url)
                         url.stopAccessingSecurityScopedResource()
                     }
@@ -84,7 +84,7 @@ extension AppState {
         // A scope that fails to start excludes its items — they are reported,
         // never attempted without access (P1).
         var tokens: [URL] = []
-        for url in Set(scoped.map { $0.1 }) where url.startAccessingSecurityScopedResource() {
+        for url in Set(scoped.map { $0.1 }) where LocationAccessService.beginAccess(url) {
             tokens.append(url)
         }
         defer { tokens.forEach { $0.stopAccessingSecurityScopedResource() } }

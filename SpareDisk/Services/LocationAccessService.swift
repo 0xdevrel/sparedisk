@@ -98,7 +98,26 @@ enum LocationAccessService {
 
     /// Resolve a stored grant. Returns a security-scoped URL the caller must
     /// `stopAccessingSecurityScopedResource()` when the whole async operation finishes.
+    /// Folders inside the app's own container need no bookmark. Used by the
+    /// UI test fixture and the screenshot demo; never persisted.
+    private static let transientLock = NSLock()
+    nonisolated(unsafe) private static var transientGrants: [String: URL] = [:]
+
+    static func grantTransient(_ url: URL) -> GrantedLocation {
+        transientLock.lock(); transientGrants[url.path] = url; transientLock.unlock()
+        return GrantedLocation(id: url.path, displayName: url.lastPathComponent, url: url, bookmark: Data())
+    }
+
+    /// Starts security-scoped access, or reports success outright for a
+    /// transient grant, whose folder the sandbox can already read.
+    static func beginAccess(_ url: URL) -> Bool {
+        transientLock.lock(); let transient = transientGrants[url.path] != nil; transientLock.unlock()
+        return transient || url.startAccessingSecurityScopedResource()
+    }
+
     static func resolve(id: String) throws -> (URL, Bool) {
+        transientLock.lock(); let transient = transientGrants[id]; transientLock.unlock()
+        if let transient { return (transient, false) }
         guard let data = loadBookmarks()[id] else { throw LocationAccessError.staleBookmark }
         var stale = false
         do {

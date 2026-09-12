@@ -20,7 +20,7 @@ extension AppState {
         // The container is always readable inside the sandbox, so no bookmark
         // is needed and nothing is written to the real location list.
         LocationAccessService.forget(id: root.path)
-        let grant = GrantedLocation(id: root.path, displayName: root.lastPathComponent, url: root, bookmark: Data())
+        let grant = LocationAccessService.grantTransient(root)
         viewMode = .list
         sortField = .size
         sortAscending = false
@@ -41,7 +41,7 @@ extension AppState {
         guard let i = args.firstIndex(of: "-demoPath"), i + 1 < args.count else { return false }
         let url = URL(fileURLWithPath: args[i + 1])
         LocationAccessService.forget(id: url.path)
-        let grant = GrantedLocation(id: url.path, displayName: url.lastPathComponent, url: url, bookmark: Data())
+        let grant = LocationAccessService.grantTransient(url)
         locations = [Self.describe(id: grant.id, url: grant.url, access: .available)]
         activeLocationID = grant.id
         rebuildIndex()
@@ -157,7 +157,7 @@ extension AppState {
     /// "re-authorization": no prompt is shown, stored data is renewed (P1).
     @MainActor
     private func refreshStoredAccess(id: String, url: URL, name: String) {
-        guard url.startAccessingSecurityScopedResource() else {
+        guard LocationAccessService.beginAccess(url) else {
             notice = "Stored access for \(name) couldn't be renewed. If its scan looks stale, choose the folder again."
             return
         }
@@ -217,7 +217,7 @@ extension AppState {
                 self.drillProgress = nil
                 return
             }
-            let accessing = scope.startAccessingSecurityScopedResource()
+            let accessing = LocationAccessService.beginAccess(scope)
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
             let worker = Task.detached(priority: .userInitiated) {
                 // Namespaced under the folder path: ids can never collide
@@ -293,7 +293,7 @@ extension AppState {
         scanTask = Task {
             // Hold the grant for the whole batch; released only after the
             // worker has terminated.
-            let accessing = url.startAccessingSecurityScopedResource()
+            let accessing = LocationAccessService.beginAccess(url)
             defer {
                 if accessing { url.stopAccessingSecurityScopedResource() }
             }
@@ -350,7 +350,7 @@ extension AppState {
             // Refresh volume availability at completion time — capacity shown
             // is timestamped by scannedAt, not by when the folder was added (P2).
             if let (url, _) = try? LocationAccessService.resolve(id: locationID),
-               url.startAccessingSecurityScopedResource() {
+               LocationAccessService.beginAccess(url) {
                 defer { url.stopAccessingSecurityScopedResource() }
                 if let vals = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]) {
                     if let t = vals.volumeTotalCapacity { self.locations[i].capacityBytes = Int64(t) }

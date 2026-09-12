@@ -86,17 +86,28 @@ struct OlderFilesView: View {
     private var shown: [ScanNode] {
         candidates.filter {
             ($0.modified ?? .distantFuture) <= cutoff
-                && (yearFilter == nil || $0.modified.map { Calendar.current.component(.year, from: $0) } == yearFilter)
+                && (yearFilter == nil || $0.modified.map(chartYear) == yearFilter)
                 && (app.searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(app.searchText))
         }.prefix(200).map { $0 }
+    }
+
+    /// Years older than this collapse into one "Before" bar: the exact year
+    /// of a decade-old file rarely matters, and stray placeholder dates from
+    /// archives would otherwise stretch the axis back to the 1980s.
+    private var oldestShownYear: Int { Calendar.current.component(.year, from: Date()) - 3 }
+
+    /// Chart key for a date: its year, or the "Before" bucket.
+    private func chartYear(_ date: Date) -> Int {
+        let y = Calendar.current.component(.year, from: date)
+        return y < oldestShownYear ? oldestShownYear - 1 : y
     }
 
     /// Bytes per modification year among the retained oldest files.
     private var byYear: [(year: Int, bytes: Int64, count: Int)] {
         var acc: [Int: (Int64, Int)] = [:]
         for n in candidates where (n.modified ?? .distantFuture) <= cutoff {
-            guard let m = n.modified else { continue }
-            let y = Calendar.current.component(.year, from: m)
+            guard let m = n.modified, m >= SDFormat.earliestRealDate else { continue }
+            let y = chartYear(m)
             acc[y, default: (0, 0)].0 += app.bytes(n)
             acc[y, default: (0, 0)].1 += 1
         }
@@ -119,7 +130,7 @@ struct OlderFilesView: View {
                 SearchField(text: $app.searchText, prompt: "Search older files")
             }
             if byYear.count > 1 {
-                AgeChart(data: byYear, selected: $yearFilter)
+                AgeChart(data: byYear, selected: $yearFilter, beforeYear: oldestShownYear)
                     .padding(.horizontal, SDTheme.Space.md).padding(.vertical, SDTheme.Space.sm)
                 Divider()
             }
@@ -164,6 +175,11 @@ private func emptyHint(_ text: String) -> some View {
 private struct AgeChart: View {
     let data: [(year: Int, bytes: Int64, count: Int)]
     @Binding var selected: Int?
+    /// Years below this share one bar labelled "Before <year>".
+    var beforeYear: Int
+
+    private func label(_ year: Int) -> String { year < beforeYear ? "Before \(String(beforeYear))" : String(year) }
+    private func year(for label: String) -> Int? { label.hasPrefix("Before") ? beforeYear - 1 : Int(label) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -171,14 +187,14 @@ private struct AgeChart: View {
                 Text("By year modified").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
                 Spacer()
                 if let y = selected {
-                    Button("Showing \(String(y)). Clear") { selected = nil }
+                    Button("Showing \(label(y).lowercased()). Clear") { selected = nil }
                         .buttonStyle(.link).font(SDTheme.Font.secondary)
                 } else {
                     Text("Click a year to filter").font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
                 }
             }
             Chart(data, id: \.year) { item in
-                BarMark(x: .value("Year", String(item.year)), y: .value("Size", item.bytes))
+                BarMark(x: .value("Year", label(item.year)), y: .value("Size", item.bytes))
                     .foregroundStyle(selected == nil || selected == item.year ? Color.accentColor : Color.accentColor.opacity(0.3))
                     .cornerRadius(3)
                     .annotation(position: .top, spacing: 2) {
@@ -196,7 +212,7 @@ private struct AgeChart: View {
                         .onTapGesture { location in
                             let origin = geo[proxy.plotFrame!].origin
                             let x = location.x - origin.x
-                            if let label: String = proxy.value(atX: x), let year = Int(label) {
+                            if let text: String = proxy.value(atX: x), let year = year(for: text) {
                                 selected = selected == year ? nil : year
                             }
                         }
