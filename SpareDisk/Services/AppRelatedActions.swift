@@ -6,7 +6,7 @@ import Foundation
 extension AppState {
     @MainActor
     var homeLocation: SDLocation? {
-        let home = NSHomeDirectory()
+        let home = LeftoverService.realHome
         return locations.first { $0.id == home || CleanupService.isWithin(home + "/Library", root: $0.id) }
     }
 
@@ -23,7 +23,7 @@ extension AppState {
         guard let (scope, _) = try? LocationAccessService.resolve(id: home.id) else { return }
         relatedScanningID = app.id
         let appPath = app.path
-        let homePath = NSHomeDirectory()
+        let homePath = LeftoverService.realHome
         let key = "related#\(app.id)"
         relatedTask = Task {
             let accessing = LocationAccessService.beginAccess(scope)

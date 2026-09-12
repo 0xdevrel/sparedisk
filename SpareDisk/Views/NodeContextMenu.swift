@@ -16,6 +16,10 @@ struct NodeContextMenu: View {
         if let why = app.reviewBlocker(node) {
             Text(why)
         }
+        if node.isPackage, node.name.hasSuffix(".app") {
+            Button("Uninstall…") { app.prepareUninstall(node) }
+                .disabled(!app.canReview(node) || app.homeLocation == nil)
+        }
         Divider()
         Button("Quick Look") { app.preview(node) }
             .disabled(app.scopeForNode(node) == nil || node.isCloudPlaceholder)

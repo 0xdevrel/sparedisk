@@ -3,12 +3,14 @@ import SwiftUI
 
 // Principal visual mode (§3.9, §7.4): squarified areas, flat fills, crisp
 // 1-point gaps, one "Other" aggregate for cells too small to read. Every
-// cell is a real button: focusable, VoiceOver-labelled, hover-highlighted.
+// cell is VoiceOver-labelled and hover-highlighted. The map owns keyboard
+// focus so arrow navigation and activation follow the same selection.
 // Return or double-click drills into a folder; the breadcrumb climbs back.
 struct TreemapView: View {
     @Environment(AppState.self) private var app
     @Environment(\.colorScheme) private var scheme
     @State private var hoveredID: String?
+    @FocusState private var mapHasFocus: Bool
     let nodes: [ScanNode]
     /// Embedded in Overview: no breadcrumb, no drilling, click opens Browse.
     var embedded = false
@@ -201,6 +203,18 @@ struct TreemapView: View {
         .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .focusable()
+        .focused($mapHasFocus)
+        .focusEffectDisabled()
+        .onKeyPress(.return) {
+            guard let node = app.inspectedNode else { return .ignored }
+            if embedded { open(node) } else { drill(node) }
+            return .handled
+        }
+        .onKeyPress(.space) {
+            guard let node = app.inspectedNode else { return .ignored }
+            app.preview(node)
+            return .handled
+        }
         .onKeyPress(.rightArrow) { step(entries.map(\.node), by: 1); return .handled }
         .onKeyPress(.leftArrow) { step(entries.map(\.node), by: -1); return .handled }
         .onKeyPress(.downArrow) { step(entries.map(\.node), by: 1); return .handled }
@@ -209,6 +223,7 @@ struct TreemapView: View {
 
     /// Arrow keys walk the level by size rank; selection wraps.
     private func step(_ ordered: [ScanNode], by delta: Int) {
+        hoveredID = nil
         let real = ordered.filter { !$0.id.hasPrefix("__") }
         guard !real.isEmpty else { return }
         let current = real.firstIndex(where: { $0.id == app.inspectedNodeID }) ?? (delta > 0 ? -1 : 0)
@@ -277,17 +292,18 @@ struct TreemapView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { if embedded { open(node) } else { drill(node) } }
-        .onTapGesture { app.inspectedNodeID = node.id }
+        .onTapGesture { select(node) }
         .onHover { hoveredID = $0 ? node.id : (hoveredID == node.id ? nil : hoveredID) }
-        .focusable()
-        .onKeyPress(.return) { if embedded { open(node) } else { drill(node) }; return .handled }
-        .onKeyPress(.space) { app.preview(node); return .handled }
         .contextMenu { NodeContextMenu(node: node, source: "Map") }
         .onDrag { NSItemProvider(object: URL(fileURLWithPath: node.path) as NSURL) }
         .help("\(node.name)\n\(SDFormat.bytesString(app.bytes(node)))\(node.isFolder && !node.isPackage ? "\nDouble-click to open" : "")")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(node.name), \(SDFormat.bytesString(app.bytes(node)))\(node.isFolder ? ", folder" : "")")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("map-cell-\(node.id)")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityAction { select(node) }
     }
 
     private func cellLabel(node: ScanNode, plan: LabelPlan) -> some View {
@@ -357,7 +373,7 @@ struct TreemapView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { if !entry.isOther { if embedded { open(kid) } else { drill(kid) } } }
-        .onTapGesture { if !entry.isOther { app.inspectedNodeID = kid.id } }
+        .onTapGesture { if !entry.isOther { select(kid) } }
         .onHover { if !entry.isOther { hoveredID = $0 ? kid.id : (hoveredID == kid.id ? nil : hoveredID) } }
         .help(entry.isOther ? "\(entry.members) smaller items, \(SDFormat.bytesString(app.bytes(kid)))"
                             : "\(kid.name)\n\(SDFormat.bytesString(app.bytes(kid)))")
@@ -387,11 +403,12 @@ struct TreemapView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { showInList() }
-        .onHover { hoveredID = $0 ? entry.node.id : (hoveredID == entry.node.id ? nil : hoveredID) }
         .focusable()
         .onKeyPress(.return) { showInList(); return .handled }
+        .onHover { hoveredID = $0 ? entry.node.id : (hoveredID == entry.node.id ? nil : hoveredID) }
         .help("\(entry.members) items too small to draw, \(SDFormat.bytesString(app.bytes(entry.node))) in total.\nClick to see them in the list.")
         .accessibilityElement(children: .ignore)
+        .accessibilityAction { showInList() }
         .accessibilityLabel("\(entry.members) smaller items, \(SDFormat.bytesString(app.bytes(entry.node))). Activate to show in list.")
         .accessibilityAddTraits(.isButton)
     }
@@ -421,6 +438,11 @@ struct TreemapView: View {
     }
 
     private var legend: some View { MapColorLegend() }
+
+    private func select(_ node: ScanNode) {
+        app.inspectedNodeID = node.id
+        mapHasFocus = true
+    }
 
     private func selected(_ node: ScanNode) -> Bool { app.inspectedNodeID == node.id }
 

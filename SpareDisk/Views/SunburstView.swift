@@ -13,6 +13,7 @@ struct SunburstView: View {
     var rootTitle: String?
     /// Sector under the pointer and where the pointer is, for the hover label.
     @State private var hovered: (id: String, point: CGPoint)?
+    @FocusState private var mapHasFocus: Bool
 
     /// A flat list of files has nothing for an outer ring, so the one ring
     /// takes the whole radius instead of leaving an empty band.
@@ -86,6 +87,7 @@ struct SunburstView: View {
                     if let s = hit(location, in: geo.size, side: side, sectors: sectors), let n = s.node { drill(n) }
                 }
                 .onTapGesture { location in
+                    mapHasFocus = true
                     if let s = hit(location, in: geo.size, side: side, sectors: sectors) {
                         if let n = s.node { app.inspectedNodeID = n.id } else { app.viewMode = .list }
                     } else if !app.mapTrail.isEmpty, distance(location, in: geo.size) < radii(ring: 0, side: side).0 {
@@ -93,6 +95,7 @@ struct SunburstView: View {
                     }
                 }
                 .focusable()
+                .focused($mapHasFocus)
                 .focusEffectDisabled()
                 .onKeyPress(.rightArrow) { step(1, sectors: sectors); return .handled }
                 .onKeyPress(.leftArrow) { step(-1, sectors: sectors); return .handled }
@@ -237,6 +240,7 @@ struct SunburstView: View {
 
     /// Arrow keys move the selection around the inner ring.
     private func step(_ delta: Int, sectors: [Sector]) {
+        hovered = nil
         let ring = sectors.filter { $0.ring == 0 }.compactMap(\.node)
         guard !ring.isEmpty else { return }
         let current = ring.firstIndex { $0.id == app.inspectedNodeID } ?? (delta > 0 ? -1 : 0)

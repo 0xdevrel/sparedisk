@@ -165,6 +165,7 @@ enum SDSidebarSelection: Hashable {
     case olderFiles
     case fileTypes
     case duplicates
+    case leftovers
     case review
 }
 
@@ -404,6 +405,16 @@ final class AppState {
     var drillTask: Task<Void, Never>?
     var drillGeneration = 0
     var expandedIDs: Set<String> = []
+    /// Leftovers: Library entries whose app is gone.
+    var leftoverGroups: [LeftoverGroup] = []
+    var leftoverKinds: [String: String] = [:]
+    var leftoverRunning = false
+    var leftoverNotice: String?
+    var leftoverTask: Task<Void, Never>?
+    /// Uninstall proposal awaiting the user's choice, and the app being prepared.
+    var uninstallPlan: UninstallPlan?
+    var uninstallPreparingID: String?
+
     /// Related-data lookups for app bundles, keyed "related#<app node id>".
     var relatedScanningID: String?
     var relatedTask: Task<Void, Never>?
@@ -474,7 +485,7 @@ final class AppState {
     var searchPrompt: String {
         switch selection {
         case .location: return "Search in \(activeLocation?.name ?? "location")"
-        case .largeFiles, .olderFiles, .fileTypes, .duplicates: return "Search scanned files"
+        case .largeFiles, .olderFiles, .fileTypes, .duplicates, .leftovers: return "Search scanned files"
         default: return "Search"
         }
     }

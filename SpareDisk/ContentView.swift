@@ -11,7 +11,7 @@ struct ContentView: View {
 
     private var showsViewPicker: Bool {
         switch app.selection {
-        case .location, .largeFiles, .olderFiles, .fileTypes, .duplicates: true
+        case .location, .largeFiles, .olderFiles, .fileTypes, .duplicates, .leftovers: true
         default: false
         }
     }
@@ -23,6 +23,7 @@ struct ContentView: View {
         case .largeFiles: "Large Files"
         case .olderFiles: "Older Files"
         case .fileTypes: "File Types"
+        case .leftovers: "Leftovers"
         case .duplicates: "Duplicates"
         case .review: "Review Cleanup"
         }
@@ -45,6 +46,8 @@ struct ContentView: View {
             return app.reviewPlan.isEmpty ? "" : "\(app.reviewPlan.count) \(app.reviewPlan.count == 1 ? "item" : "items"), \(SDFormat.bytesString(app.reviewPlanBytes))"
         case .duplicates:
             return app.duplicateGroups.isEmpty ? "" : "\(app.duplicateGroups.count) groups"
+        case .leftovers:
+            return app.leftoverGroups.isEmpty ? "" : "\(app.leftoverGroups.count) \(app.leftoverGroups.count == 1 ? "app" : "apps"), \(SDFormat.bytesString(app.leftoverGroups.reduce(0) { $0 + $1.bytes }))"
         default:
             return ""
         }
@@ -109,6 +112,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $app.showAbout) { AboutView() }
         .sheet(isPresented: $app.showScanIssues) { ScanIssuesView() }
+        .sheet(item: $app.uninstallPlan) { plan in UninstallSheet(plan: plan) }
         .task {
             // The window is not yet on screen when the view first appears.
             try? await Task.sleep(for: .milliseconds(400))
@@ -138,6 +142,7 @@ struct CenterView: View {
             case .largeFiles: LargeFilesView()
             case .olderFiles: OlderFilesView()
             case .fileTypes: FileTypesView()
+            case .leftovers: LeftoversView()
             case .duplicates: DuplicatesView()
             case .review: ReviewQueueView()
             }

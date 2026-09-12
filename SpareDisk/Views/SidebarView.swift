@@ -63,6 +63,17 @@ struct SidebarView: View {
                     }
                 }
                 .tag(SDSidebarSelection.duplicates)
+                HStack {
+                    Label("Leftovers", systemImage: "app.dashed")
+                    Spacer()
+                    if !app.leftoverGroups.isEmpty && !app.leftoverRunning {
+                        Text("\(app.leftoverGroups.count)")
+                            .font(.caption.monospacedDigit())
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                    }
+                }
+                .tag(SDSidebarSelection.leftovers)
             }
             Section("Cleanup") {
                 HStack {

@@ -265,6 +265,19 @@ struct InspectorView: View {
                 .disabled(!hasGrant(node))
             }
             .controlSize(.large)
+            if node.isPackage, node.name.hasSuffix(".app") {
+                Button {
+                    app.prepareUninstall(node)
+                } label: {
+                    HStack {
+                        if app.uninstallPreparingID == node.id { ProgressView().controlSize(.mini) }
+                        Label("Uninstall…", systemImage: "app.badge.checkmark").frame(maxWidth: .infinity)
+                    }
+                }
+                .controlSize(.large)
+                .disabled(!app.canReview(node) || app.homeLocation == nil || app.uninstallPreparingID != nil)
+                .help(app.homeLocation == nil ? "Add your home folder to find the app's data" : "Stage the app and its data for review")
+            }
             if let m = actionNotice {
                 Text(m).font(SDTheme.Font.secondary).foregroundStyle(.orange)
             }
