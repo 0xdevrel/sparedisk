@@ -156,6 +156,9 @@ struct StatusBarView: View {
             } else if let s = app.lastCleanupSummary {
                 Image(systemName: "trash.fill").foregroundStyle(.secondary)
                 Text(s).font(SDTheme.Font.secondary)
+                if app.selection != .review {
+                    Button("View Report") { app.selection = .review }.buttonStyle(.link).font(SDTheme.Font.secondary)
+                }
             } else if case .location = app.selection, let scan = app.activeScan, app.hasRealData {
                 if scan.wasCancelled {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.orange)

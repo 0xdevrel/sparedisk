@@ -537,17 +537,28 @@ final class AppState {
         }
     }
 
-    /// The start of the earliest scan whose figures could be on screen for
-    /// a node. A walk is not atomic, so anything modified after the scan
-    /// began may have been measured stale; the descendant check treats it
-    /// as changed. Falls back to now for items that were never scanned.
+    /// The start of the scan whose figures are on screen for a node. A walk
+    /// is not atomic, so anything modified after that scan began may have
+    /// been measured stale; the descendant check treats it as changed.
+    ///
+    /// The node snapshot itself says which scan produced it, so the time
+    /// comes from the scans holding that exact snapshot. Nested locations
+    /// (Home plus Downloads, say) each hold their own snapshot of the same
+    /// folder; taking the earliest start across every covering scan made a
+    /// freshly rescanned folder fail against a day-old Home scan. The
+    /// covering-scan fallback remains for nodes no scan holds verbatim.
+    /// Falls back to now for items that were never scanned.
     func verificationTime(for node: ScanNode) -> Date {
         // Leftovers are measured again independently of a potentially old
         // Home scan. Use that measurement only for the exact node snapshot.
         if let scan = focusedScans[Self.leftoverKey], scan.topNodes.contains(node) {
             return scan.startedAt
         }
-        let covering = (Array(scans.values) + Array(focusedScans.values)).filter { r in
+        let all = Array(scans.values) + Array(focusedScans.values)
+        if let owning = all.filter({ $0.holds(node) }).map(\.startedAt).min() {
+            return owning
+        }
+        let covering = all.filter { r in
             let root = r.locationID.split(separator: "#").last.map(String.init) ?? r.locationID
             return node.path == root || CleanupService.isWithin(node.path, root: root)
         }

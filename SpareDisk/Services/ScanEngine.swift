@@ -53,6 +53,19 @@ nonisolated struct ScanResult: Hashable, Codable {
 
     var elapsed: TimeInterval { finishedAt.timeIntervalSince(startedAt) }
 
+    /// Whether this exact node snapshot (every recorded figure equal) came
+    /// out of this scan: the tree, or one of the file rankings.
+    func holds(_ node: ScanNode) -> Bool {
+        func inTree(_ nodes: [ScanNode]) -> Bool {
+            for n in nodes {
+                if n.id == node.id { if n == node { return true } }
+                if let kids = n.children, inTree(kids) { return true }
+            }
+            return false
+        }
+        return inTree(topNodes) || largestFiles.contains(node) || largestFilesOnDisk.contains(node) || oldestFiles.contains(node)
+    }
+
     /// Whether this scan recorded allocation at all. Results saved before
     /// allocation was tracked have none, and must not be mistaken for a
     /// folder that genuinely occupies nothing on disk.
@@ -166,6 +179,10 @@ nonisolated enum ScanEngine {
         /// same identity as Find candidates and cleanup can detect replacement.
         var ino: UInt64 = 0
         var dev: UInt64 = 0
+        /// Whether the entry's own visit was folded in. Kept apart from
+        /// `own`, which is nil for the placeholder dates archives leave, so
+        /// such an entry still carries its identity.
+        var seen = false
     }
 
     fileprivate struct FileIdentity: Hashable {
@@ -567,8 +584,8 @@ nonisolated enum ScanEngine {
                  logicalBytes: e.bytes, modified: e.own,
                  childCount: max(e.count - 1, e.isDir ? 1 : 0),
                  isCloudPlaceholder: e.dataless,
-                 fsFileNumber: e.own == nil ? nil : e.ino,
-                 fsVolumeNumber: e.own == nil ? nil : e.dev,
+                 fsFileNumber: e.seen ? e.ino : nil,
+                 fsVolumeNumber: e.seen ? e.dev : nil,
                  allocatedBytes: e.alloc,
                  ownedByOthers: e.ownedByOthers)
     }
@@ -656,7 +673,8 @@ nonisolated extension ScanEngine.Agg {
         bytes += o.bytes
         alloc += o.alloc
         count += o.count
-        if o.own != nil {
+        if o.seen {
+            seen = true
             own = o.own; isDir = o.isDir; isPkg = o.isPkg; cat = o.cat; dataless = o.dataless
             ownedByOthers = o.ownedByOthers; ino = o.ino; dev = o.dev
         }
@@ -667,6 +685,7 @@ nonisolated extension ScanEngine.Agg {
         self.alloc += alloc
         count += 1
         if let own {
+            seen = true
             isDir = own.isDir
             self.isPkg = isPkg
             cat = ScanEngine.category(name: name, ext: ext, isDir: own.isDir, size: own.size)

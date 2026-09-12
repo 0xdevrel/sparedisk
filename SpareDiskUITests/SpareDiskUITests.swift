@@ -114,4 +114,28 @@ final class SpareDiskUITests: XCTestCase {
         XCTAssertFalse(app.windows.firstMatch.buttons["overview-cancel-scans"].exists)
     }
 
+    /// Direct Move to Trash from the inspector: confirm the alert and the
+    /// status bar must report a move, not silence.
+    @MainActor
+    func testDirectTrashFromInspectorMovesFile() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestFixture"]
+        app.launch()
+        let open = app.buttons["Open"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        open.click()
+        let small = app.staticTexts["small.txt"].firstMatch
+        XCTAssertTrue(small.waitForExistence(timeout: 15))
+        small.click()
+        let trash = app.buttons["Move to Trash"].firstMatch
+        XCTAssertTrue(trash.waitForExistence(timeout: 5))
+        trash.click()
+        let confirm = app.sheets.firstMatch.buttons["Move to Trash"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "confirmation alert appears")
+        confirm.click()
+        // The status bar exposes its text as the element's value. The runner
+        // is sandboxed, so the fixture folder itself cannot be inspected here.
+        let moved = app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@ OR label BEGINSWITH %@", "Moved 1 item", "Moved 1 item")).firstMatch
+        XCTAssertTrue(moved.waitForExistence(timeout: 15), "status bar reports the move")
+    }
 }

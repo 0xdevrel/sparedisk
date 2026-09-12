@@ -34,6 +34,13 @@ nonisolated enum ScanStore {
         try? data.write(to: url, options: .atomic)
     }
 
+    /// Rewrite the current result in place, leaving the earlier result
+    /// alone: an edit to the same scan, not a new scan to compare against.
+    static func overwrite(_ result: ScanResult) {
+        guard let url = file(for: result.locationID), let data = encode(result) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
     static func loadPrevious(locationID: String) -> ScanResult? {
         guard let url = previousFile(for: locationID) else { return nil }
         return load(from: url)

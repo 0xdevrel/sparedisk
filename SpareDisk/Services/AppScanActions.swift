@@ -131,7 +131,9 @@ extension AppState {
     /// Downloads and Library together.
     @MainActor
     func addHomeFolderFlow() async {
-        await addLocationFlow(startingAt: URL(fileURLWithPath: NSHomeDirectory()),
+        // NSHomeDirectory() is the sandbox container here; the panel must
+        // open in the account's real home for Analyze to grant it.
+        await addLocationFlow(startingAt: URL(fileURLWithPath: LeftoverService.realHome),
                               message: "Click Analyze to add your home folder, or choose other folders.")
     }
 

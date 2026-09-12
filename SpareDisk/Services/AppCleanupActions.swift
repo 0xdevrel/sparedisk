@@ -153,8 +153,11 @@ extension AppState {
         // Reconcile: moved items leave, whichever id staged them, plus
         // anything nested under a moved folder.
         reviewItems = CleanupService.remaining(reviewItems, afterMoving: moved)
-        // Moved leftovers leave their groups; an emptied group disappears.
         let movedPaths = moved.map { CleanupService.standardized($0.path) }
+        // They leave the scan trees too, so Browse and Find stop listing
+        // them and a second attempt is not needed to learn they are gone.
+        removeMovedNodes(paths: movedPaths)
+        // Moved leftovers leave their groups; an emptied group disappears.
         let leftoverCountBefore = leftoverGroups.reduce(0) { $0 + $1.items.count }
         leftoverGroups = leftoverGroups.compactMap { g in
             var g = g
@@ -168,6 +171,68 @@ extension AppState {
             leftoverNotice = leftoverGroups.isEmpty ? "All listed leftovers were moved to Trash."
                 : "\(leftoverGroups.count) apps still have listed data, \(SDFormat.bytesString(leftoverGroups.reduce(0) { $0 + $1.bytes })) remaining."
         }
+    }
+
+    /// Take moved items out of every scan that listed them, with their
+    /// bytes and counts taken out of each ancestor and the totals, then
+    /// rebuild the index. Stored scans are rewritten in place so the next
+    /// launch agrees with the screen. `persist` is off only in tests.
+    @MainActor
+    func removeMovedNodes(paths: [String], persist: Bool = true) {
+        guard !paths.isEmpty else { return }
+        func gone(_ path: String) -> Bool {
+            let p = CleanupService.standardized(path)
+            return paths.contains { $0 == p || CleanupService.isWithin(p, root: $0) }
+        }
+        struct Removed { var bytes: Int64 = 0; var alloc: Int64 = 0; var count = 0 }
+        func prune(_ nodes: [ScanNode]) -> ([ScanNode], Removed) {
+            var kept: [ScanNode] = []
+            var removed = Removed()
+            for var n in nodes {
+                if gone(n.path) {
+                    removed.bytes += n.logicalBytes
+                    removed.alloc += n.allocatedBytes ?? 0
+                    removed.count += n.childCount + 1
+                    continue
+                }
+                if let kids = n.children {
+                    let (k, r) = prune(kids)
+                    if r.count > 0 {
+                        n.children = k
+                        n.logicalBytes = max(0, n.logicalBytes - r.bytes)
+                        if let a = n.allocatedBytes { n.allocatedBytes = max(0, a - r.alloc) }
+                        n.childCount = max(0, n.childCount - r.count)
+                        removed.bytes += r.bytes; removed.alloc += r.alloc; removed.count += r.count
+                    }
+                }
+                kept.append(n)
+            }
+            return (kept, removed)
+        }
+        func apply(_ scan: inout ScanResult) -> Bool {
+            let (top, r) = prune(scan.topNodes)
+            let rankings = scan.largestFiles.count + scan.largestFilesOnDisk.count + scan.oldestFiles.count
+            scan.largestFiles.removeAll { gone($0.path) }
+            scan.largestFilesOnDisk.removeAll { gone($0.path) }
+            scan.oldestFiles.removeAll { gone($0.path) }
+            let rankingsChanged = rankings != scan.largestFiles.count + scan.largestFilesOnDisk.count + scan.oldestFiles.count
+            guard r.count > 0 || rankingsChanged else { return false }
+            scan.topNodes = top
+            scan.totalBytes = max(0, scan.totalBytes - r.bytes)
+            scan.totalAllocated = max(0, scan.totalAllocated - r.alloc)
+            scan.itemCount = max(0, scan.itemCount - r.count)
+            return true
+        }
+        for key in scans.keys {
+            guard var scan = scans[key], apply(&scan) else { continue }
+            scans[key] = scan
+            if persist { ScanStore.overwrite(scan) }
+        }
+        for key in focusedScans.keys {
+            guard var scan = focusedScans[key], apply(&scan) else { continue }
+            focusedScans[key] = scan
+        }
+        rebuildIndex()
     }
 
     @MainActor

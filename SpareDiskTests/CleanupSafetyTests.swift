@@ -161,6 +161,29 @@ struct CleanupRevalidationTests {
         #expect(CleanupService.revalidate(url: URL(fileURLWithPath: loose.path), node: loose, scope: root) != .ok)
     }
 
+    @Test func placeholderDateStillCarriesIdentity() async throws {
+        // Archives and container images leave 1970 dates. The date reads as
+        // unknown, but the file must keep its inode so cleanup can move it.
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let root = base.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Old"), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 512).write(to: root.appendingPathComponent("epoch.bin"))
+        try Data(repeating: 1, count: 512).write(to: root.appendingPathComponent("Old/inner.bin"))
+        let epoch = Date(timeIntervalSince1970: 0)
+        try FileManager.default.setAttributes([.modificationDate: epoch], ofItemAtPath: root.appendingPathComponent("epoch.bin").path)
+        try FileManager.default.setAttributes([.modificationDate: epoch], ofItemAtPath: root.appendingPathComponent("Old").path)
+
+        let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
+        let file = try #require(result.topNodes.first(where: { $0.name == "epoch.bin" }))
+        let folder = try #require(result.topNodes.first(where: { $0.name == "Old" }))
+        #expect(file.modified == nil)
+        #expect(file.fsFileNumber != nil)
+        #expect(folder.fsFileNumber != nil)
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: file.path), node: file, scope: root) == .ok)
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: folder.path), node: folder, scope: root, verifiedAt: result.startedAt) == .ok)
+    }
+
     @Test func nestedChangeInsideFolderIsCaught() async throws {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let root = base.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
@@ -267,5 +290,66 @@ struct CleanupRevalidationTests {
         #expect(CleanupService.revalidate(url: URL(fileURLWithPath: loose.path), node: loose, scope: root) == .ok)
         let original = try #require(result.topNodes.first(where: { $0.name == "loose.bin" }))
         #expect(CleanupService.sameInstant(original.modified!, loose.modified!))
+    }
+
+    // MARK: - Verification time comes from the node's own scan
+
+    @Test @MainActor func verificationTimeUsesTheScanThatHoldsTheNode() {
+        func node(_ id: String, _ path: String, folder: Bool = false, bytes: Int64 = 100) -> ScanNode {
+            ScanNode(id: id, name: (path as NSString).lastPathComponent, path: path,
+                     isFolder: folder, category: .documents, logicalBytes: bytes,
+                     modified: nil, childCount: folder ? 2 : 0)
+        }
+        // Home was scanned yesterday; Downloads, nested inside it, just now.
+        // Each scan holds its own snapshot of the same folder.
+        let now = Date()
+        let yesterday = now.addingTimeInterval(-86_400)
+        let path = "/Users/u/Downloads/Project"
+        var homeCopy = node("/Users/u/Downloads/Project", path, folder: true, bytes: 900)
+        homeCopy.childCount = 0
+        var freshCopy = node("/Users/u/Downloads/Project", path, folder: true, bytes: 900)
+        freshCopy.children = [node("/Users/u/Downloads/Project/a.bin", path + "/a.bin")]
+        let app = AppState()
+        app.scans["/Users/u"] = ScanResult(locationID: "/Users/u", rootName: "u", totalBytes: 900, itemCount: 2,
+                                           topNodes: [ScanNode(id: "/Users/u/Downloads", name: "Downloads", path: "/Users/u/Downloads",
+                                                               isFolder: true, category: .other, logicalBytes: 900, modified: nil,
+                                                               childCount: 1, children: [homeCopy])],
+                                           issues: [], startedAt: yesterday, finishedAt: yesterday, wasCancelled: false)
+        app.scans["/Users/u/Downloads"] = ScanResult(locationID: "/Users/u/Downloads", rootName: "Downloads", totalBytes: 900,
+                                                     itemCount: 2, topNodes: [freshCopy], issues: [],
+                                                     startedAt: now, finishedAt: now, wasCancelled: false)
+        #expect(app.verificationTime(for: freshCopy) == now)
+        #expect(app.verificationTime(for: homeCopy) == yesterday)
+        // A node no scan holds verbatim still gets the conservative covering time.
+        let stranger = node("x", "/Users/u/Downloads/Other", folder: true)
+        #expect(app.verificationTime(for: stranger) == yesterday)
+    }
+
+    @Test @MainActor func movedItemsLeaveTheScanTree() {
+        func node(_ id: String, _ path: String, folder: Bool = false, bytes: Int64 = 100, kids: [ScanNode]? = nil) -> ScanNode {
+            ScanNode(id: id, name: (path as NSString).lastPathComponent, path: path,
+                     isFolder: folder, category: .documents, logicalBytes: bytes,
+                     modified: nil, childCount: kids?.count ?? 0, children: kids)
+        }
+        let inner = node("L/Docs/big.mov", "/Users/u/Docs/big.mov", bytes: 700)
+        let keep = node("L/Docs/keep.txt", "/Users/u/Docs/keep.txt", bytes: 100)
+        let docs = node("L/Docs", "/Users/u/Docs", folder: true, bytes: 800, kids: [inner, keep])
+        let other = node("L/other.bin", "/Users/u/other.bin", bytes: 50)
+        let app = AppState()
+        app.scans["/Users/u"] = ScanResult(locationID: "/Users/u", rootName: "u", totalBytes: 850, itemCount: 4,
+                                           topNodes: [docs, other], largestFiles: [inner, keep, other], issues: [],
+                                           startedAt: Date(), finishedAt: Date(), wasCancelled: false)
+        app.rebuildIndex()
+        #expect(app.nodeIndex[inner.id] != nil)
+        app.removeMovedNodes(paths: ["/Users/u/Docs/big.mov"], persist: false)
+        let scan = app.scans["/Users/u"]!
+        #expect(scan.totalBytes == 150)
+        #expect(scan.itemCount == 3)
+        #expect(scan.largestFiles.map(\.name) == ["keep.txt", "other.bin"])
+        let prunedDocs = scan.topNodes.first { $0.name == "Docs" }!
+        #expect(prunedDocs.logicalBytes == 100)
+        #expect(prunedDocs.children?.map(\.name) == ["keep.txt"])
+        #expect(app.nodeIndex[inner.id] == nil)
+        #expect(app.nodeIndex[keep.id] != nil)
     }
 }
