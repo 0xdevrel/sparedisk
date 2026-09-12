@@ -19,7 +19,7 @@ struct ChangesView: View {
             } else {
                 List(diff.changes) { c in
                     HStack(spacing: 10) {
-                        Text(c.kind).font(SDTheme.Font.secondary).foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
+                        Text(c.kind).font(SDTheme.Font.secondary).foregroundStyle(.secondary).frame(width: 78, alignment: .leading)
                         Text(c.name).font(SDTheme.Font.body).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                         if let b = c.before, let a = c.after {
                             Text("\(SDFormat.bytesString(b)) to \(SDFormat.bytesString(a))")

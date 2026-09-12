@@ -30,9 +30,7 @@ nonisolated enum ScanStore {
             try? FileManager.default.removeItem(at: prev)
             try? FileManager.default.moveItem(at: url, to: prev)
         }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(result) else { return }
+        guard let data = encode(result) else { return }
         try? data.write(to: url, options: .atomic)
     }
 
@@ -48,8 +46,34 @@ nonisolated enum ScanStore {
 
     private static func load(from url: URL) -> ScanResult? {
         guard let data = try? Data(contentsOf: url) else { return nil }
+        return decode(data)
+    }
+
+    /// Dates are stored as whole nanoseconds since 1970. ISO 8601 kept only
+    /// seconds, so after a relaunch every unchanged file compared as
+    /// "changed" against its live sub-second timestamp.
+    static func encode(_ result: ScanResult) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom { date, enc in
+            var c = enc.singleValueContainer()
+            try c.encode(Int64((date.timeIntervalSince1970 * 1_000_000_000).rounded()))
+        }
+        return try? encoder.encode(result)
+    }
+
+    /// Reads nanosecond dates and, for files written before this format,
+    /// ISO 8601 strings.
+    static func decode(_ data: Data) -> ScanResult? {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { dec in
+            let c = try dec.singleValueContainer()
+            if let ns = try? c.decode(Int64.self) {
+                return Date(timeIntervalSince1970: Double(ns) / 1_000_000_000)
+            }
+            let text = try c.decode(String.self)
+            if let d = ISO8601DateFormatter().date(from: text) { return d }
+            throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unreadable date \(text)")
+        }
         return try? decoder.decode(ScanResult.self, from: data)
     }
 

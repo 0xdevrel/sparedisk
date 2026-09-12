@@ -151,6 +151,10 @@ nonisolated enum ScanEngine {
         var cat: SDFileCategory = .other
         var dataless = false
         var ownedByOthers = false
+        /// Inode and device of the entry itself, so Browse nodes carry the
+        /// same identity as Find candidates and cleanup can detect replacement.
+        var ino: UInt64 = 0
+        var dev: UInt64 = 0
     }
 
     fileprivate struct FileIdentity: Hashable {
@@ -538,6 +542,8 @@ nonisolated enum ScanEngine {
                  logicalBytes: e.bytes, modified: e.own,
                  childCount: max(e.count - 1, e.isDir ? 1 : 0),
                  isCloudPlaceholder: e.dataless,
+                 fsFileNumber: e.own == nil ? nil : e.ino,
+                 fsVolumeNumber: e.own == nil ? nil : e.dev,
                  allocatedBytes: e.alloc,
                  ownedByOthers: e.ownedByOthers)
     }
@@ -617,7 +623,10 @@ nonisolated extension ScanEngine.Agg {
         bytes += o.bytes
         alloc += o.alloc
         count += o.count
-        if o.own != nil { own = o.own; isDir = o.isDir; isPkg = o.isPkg; cat = o.cat; dataless = o.dataless; ownedByOthers = o.ownedByOthers }
+        if o.own != nil {
+            own = o.own; isDir = o.isDir; isPkg = o.isPkg; cat = o.cat; dataless = o.dataless
+            ownedByOthers = o.ownedByOthers; ino = o.ino; dev = o.dev
+        }
     }
 
     fileprivate mutating func fold(bytes: Int64, alloc: Int64, own: ScanEngine.Stat?, name: String, ext: String, isPkg: Bool) {
@@ -631,6 +640,8 @@ nonisolated extension ScanEngine.Agg {
             self.own = own.modified
             dataless = own.dataless
             ownedByOthers = own.uid != ScanEngine.currentUID
+            ino = own.ino
+            dev = own.dev
         }
     }
 }

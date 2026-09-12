@@ -11,13 +11,17 @@ nonisolated struct ScanChange: Identifiable, Hashable {
     var before: Int64?
     var after: Int64?
     var isFolder: Bool
+    /// The current scan could not read this item or something inside it,
+    /// so a missing or smaller figure is not evidence of deletion.
+    var isUnreadable: Bool = false
 
-    var delta: Int64 { (after ?? 0) - (before ?? 0) }
+    var delta: Int64 { isUnreadable && after == nil ? 0 : (after ?? 0) - (before ?? 0) }
     var kind: String {
+        if isUnreadable { return "Unreadable" }
         switch (before, after) {
-        case (nil, _): "Added"
-        case (_, nil): "Removed"
-        default: delta >= 0 ? "Grew" : "Shrank"
+        case (nil, _): return "Added"
+        case (_, nil): return "Removed"
+        default: return delta >= 0 ? "Grew" : "Shrank"
         }
     }
 }
@@ -31,16 +35,23 @@ nonisolated struct ScanDiff: Hashable {
     static func between(previous: ScanResult, current: ScanResult) -> ScanDiff {
         let old = Dictionary(previous.topNodes.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
         let new = Dictionary(current.topNodes.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+        let unreadable = current.issues.map(\.path)
+        func touchedByIssue(_ path: String) -> Bool {
+            unreadable.contains { $0 == path || CleanupService.isWithin($0, root: path) }
+        }
         var changes: [ScanChange] = []
         for (path, n) in new {
             let o = old[path]
             if o?.logicalBytes != n.logicalBytes {
+                let shrankUnreadable = o != nil && n.logicalBytes < o!.logicalBytes && touchedByIssue(path)
                 changes.append(ScanChange(name: n.name, path: path, before: o?.logicalBytes,
-                                          after: n.logicalBytes, isFolder: n.isFolder))
+                                          after: n.logicalBytes, isFolder: n.isFolder,
+                                          isUnreadable: shrankUnreadable || n.isUnreadable))
             }
         }
         for (path, o) in old where new[path] == nil {
-            changes.append(ScanChange(name: o.name, path: path, before: o.logicalBytes, after: nil, isFolder: o.isFolder))
+            changes.append(ScanChange(name: o.name, path: path, before: o.logicalBytes, after: nil,
+                                      isFolder: o.isFolder, isUnreadable: touchedByIssue(path)))
         }
         changes.sort { abs($0.delta) > abs($1.delta) }
         return ScanDiff(previousFinished: previous.finishedAt,

@@ -8,7 +8,7 @@ struct SidebarView: View {
         @Bindable var app = app
         List(selection: $app.selection) {
             Section("Storage") {
-                Label("Overview", systemImage: "internaldrive")
+                Label("My Mac", systemImage: SDTheme.macSymbol)
                     .tag(SDSidebarSelection.overview)
                 DisclosureGroup(isExpanded: $locationsExpanded) {
                     if app.locations.isEmpty {
@@ -51,6 +51,7 @@ struct SidebarView: View {
             Section("Find") {
                 Label("Large Files", systemImage: "doc.text.magnifyingglass").tag(SDSidebarSelection.largeFiles)
                 Label("Older Files", systemImage: "calendar").tag(SDSidebarSelection.olderFiles)
+                Label("File Types", systemImage: "rectangle.3.group.fill").tag(SDSidebarSelection.fileTypes)
                 HStack {
                     Label("Duplicates", systemImage: "doc.on.doc")
                     Spacer()

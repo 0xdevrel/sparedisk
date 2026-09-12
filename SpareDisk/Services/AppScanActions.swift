@@ -364,11 +364,13 @@ extension AppState {
     }
 
     private static func describe(id: String, url: URL, access: SDLocation.Access) -> SDLocation {
-        let vals = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
+        let vals = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey,
+                                                     .volumeUUIDStringKey, .volumeLocalizedNameKey, .volumeIsInternalKey])
         return SDLocation(id: id, name: url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent,
-                          symbol: "folder.fill", isExternal: false, access: access,
+                          symbol: "folder.fill", isExternal: vals?.volumeIsInternal == false, access: access,
                           capacityBytes: Int64(vals?.volumeTotalCapacity ?? 0),
                           availableBytes: Int64(vals?.volumeAvailableCapacity ?? 0),
+                          volumeUUID: vals?.volumeUUIDString, volumeName: vals?.volumeLocalizedName,
                           scannedBytes: 0, scannedAt: Date(), issues: 0)
     }
 }

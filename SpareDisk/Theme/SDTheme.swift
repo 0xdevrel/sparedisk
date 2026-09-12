@@ -224,6 +224,7 @@ struct ScreenBar<Leading: View, Trailing: View>: View {
                 // Leading text truncates before the column asks the window
                 // for more room; controls on the right keep their size.
                 HStack(spacing: 10) { leading }
+                    .lineLimit(1).truncationMode(.tail)
                     .frame(minWidth: 0, alignment: .leading)
                     .layoutPriority(-1)
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
@@ -267,6 +268,18 @@ struct SearchField: View {
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(focused ? Color.accentColor : Color.primary.opacity(0.10), lineWidth: focused ? 1.5 : 1))
         .onKeyPress(.escape) { text = ""; return .handled }
     }
+}
+
+extension SDTheme {
+    /// Laptop or desktop glyph for this machine, the way Finder's sidebar does.
+    static let macSymbol: String = {
+        var size = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        guard size > 0 else { return "desktopcomputer" }
+        var buffer = [CChar](repeating: 0, count: size)
+        sysctlbyname("hw.model", &buffer, &size, nil, 0)
+        return String(cString: buffer).contains("Book") ? "macbook" : "desktopcomputer"
+    }()
 }
 
 /// Lays children out left to right and wraps to new rows, so legends and

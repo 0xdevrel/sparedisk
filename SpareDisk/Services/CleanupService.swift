@@ -57,8 +57,10 @@ nonisolated enum CleanupService {
         var kept: [ReviewItem] = []
         let folders = items.filter { $0.node.isFolder }.map { standardized($0.node.path) }
         for item in items {
-            guard seen.insert(item.node.id).inserted else { continue }
+            // The same file reaches the queue with different ids from Browse
+            // and from Find, so identity here is the path.
             let p = standardized(item.node.path)
+            guard seen.insert(p).inserted else { continue }
             let nested = folders.contains { f in f != p && isWithin(p, root: f) }
             if nested { continue }
             kept.append(item)
@@ -87,7 +89,7 @@ nonisolated enum CleanupService {
                                  path: item.node.path, bytes: item.node.logicalBytes,
                                  outcome: .missing)
         let url = URL(fileURLWithPath: item.node.path)
-        switch revalidate(url: url, node: item.node, scope: scope) {
+        switch revalidate(url: url, node: item.node, scope: scope, stagedAt: item.stagedAt) {
         case .ok: break
         case .blocked(let reason):
             var r = base; r.outcome = .blocked(reason); return r
@@ -119,7 +121,7 @@ nonisolated enum CleanupService {
 
     enum Revalidation: Equatable { case ok, blocked(String), changed(String), gone }
 
-    static func revalidate(url: URL, node: ScanNode, scope: URL) -> Revalidation {
+    static func revalidate(url: URL, node: ScanNode, scope: URL, stagedAt: Date? = nil) -> Revalidation {
         // Resolve symlinked ancestors on both sides: lexical normalization
         // alone does not establish containment (P1).
         let target = url.standardizedFileURL.resolvingSymlinksInPath()
@@ -176,6 +178,19 @@ nonisolated enum CleanupService {
             if let hit = firstManagedDescendant(in: target) {
                 return .blocked("Contains \(hit), which is managed by another app.")
             }
+            // A folder's own date only moves when its direct entries change.
+            // Edits deeper inside leave it untouched, so look at every
+            // descendant's dates against the moment the user staged it.
+            if let stagedAt {
+                switch newestDescendantChange(in: target, since: stagedAt) {
+                case .changed(let name):
+                    return .changed("\(name) inside it changed after review. Review the folder again.")
+                case .tooLarge:
+                    return .blocked("Too many items to verify before moving. Move it in Finder.")
+                case .unchanged:
+                    break
+                }
+            }
         } else {
             if !identityMatches(node: node, fileNumber: live.ino, volumeNumber: live.dev) {
                 return .changed("Replaced after review by a different file with the same name.")
@@ -187,6 +202,29 @@ nonisolated enum CleanupService {
             }
         }
         return .ok
+    }
+
+    enum DescendantCheck: Equatable { case unchanged, changed(String), tooLarge }
+
+    /// Walks every descendant and reports the first whose content or
+    /// attribute date is later than `since` (plus one second of slack for
+    /// filesystems that round). Bounded so cleanup never hangs.
+    static func newestDescendantChange(in folder: URL, since: Date, limit: Int = 1_000_000) -> DescendantCheck {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .attributeModificationDateKey]
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys,
+                                                          options: [], errorHandler: { _, _ in true }) else {
+            return .unchanged
+        }
+        let threshold = since.addingTimeInterval(1)
+        var seen = 0
+        for case let url as URL in walker {
+            seen += 1
+            if seen > limit { return .tooLarge }
+            guard let v = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+            if let m = v.contentModificationDate, m > threshold { return .changed(url.lastPathComponent) }
+            if let a = v.attributeModificationDate, a > threshold { return .changed(url.lastPathComponent) }
+        }
+        return .unchanged
     }
 
     /// Timestamps equal within a microsecond count as the same instant.

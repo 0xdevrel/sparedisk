@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import SwiftUI
 
 // Inspector order (§F05): name and kind, path, size, dates and counts,
@@ -34,6 +35,9 @@ struct InspectorView: View {
                     actions(node)
                 }
                 .padding(SDTheme.Space.md)
+            } else if app.selection == .overview, let summary = app.storageSummary {
+                StorageInspector(summary: summary)
+                    .padding(SDTheme.Space.md)
             } else {
                 Text("No Selection").font(SDTheme.Font.body).foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 200)
@@ -89,8 +93,10 @@ struct InspectorView: View {
                     }
                 }
             }
-            Text(node.path).font(.system(size: 11.5)).foregroundStyle(.secondary)
-                .lineLimit(3).truncationMode(.middle).textSelection(.enabled)
+            // Where it lives, relative to its location. The full path stays
+            // one hover or Copy Path away.
+            Text(app.displayPath(node)).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                .lineLimit(2).truncationMode(.middle).help(node.path)
         }
     }
 
@@ -268,6 +274,70 @@ struct InspectorView: View {
                 Text("Sample data. Add a location to work with your own files.")
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+/// The volume as a ring: each scanned location, everything else in use,
+/// and what is still available. Shown while My Mac has no selection.
+private struct StorageInspector: View {
+    @Environment(AppState.self) private var app
+    @Environment(\.colorScheme) private var scheme
+    let summary: StorageSummary
+
+    private struct Slice: Identifiable {
+        var id: String
+        var name: String
+        var bytes: Int64
+        var color: Color
+    }
+
+    private var slices: [Slice] {
+        var out = summary.parts.map {
+            Slice(id: $0.id, name: $0.name, bytes: $0.bytes, color: SDTheme.hue($0.rank, scheme: scheme))
+        }
+        out.append(Slice(id: "__other", name: "Other used", bytes: summary.other, color: Color.primary.opacity(0.22)))
+        out.append(Slice(id: "__free", name: "Available", bytes: summary.volume.availableBytes, color: Color.primary.opacity(0.07)))
+        return out.filter { $0.bytes > 0 }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SDTheme.Space.sm) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary.volume.volumeName ?? "Startup Disk").font(.system(size: 15, weight: .semibold))
+                Text("\(SDFormat.bytesString(summary.volume.capacityBytes)) in total")
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
+            ZStack {
+                Chart(slices) { s in
+                    SectorMark(angle: .value("Bytes", s.bytes), innerRadius: .ratio(0.68), angularInset: 1.2)
+                        .foregroundStyle(s.color)
+                        .cornerRadius(2)
+                }
+                .chartLegend(.hidden)
+                VStack(spacing: 2) {
+                    Text(SDFormat.bytesString(summary.volume.availableBytes)).font(SDTheme.Font.figureSmall)
+                    Text("available").font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                }
+            }
+            .frame(height: 210)
+            .padding(.vertical, 6)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(SDFormat.bytesString(summary.used)) used, \(SDFormat.bytesString(summary.volume.availableBytes)) available")
+            Divider()
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 7) {
+                ForEach(slices) { s in
+                    GridRow {
+                        Circle().fill(s.color).frame(width: 9, height: 9)
+                        Text(s.name).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(SDFormat.bytesString(s.bytes)).monospacedDigit().foregroundStyle(.secondary)
+                            .gridColumnAlignment(.trailing)
+                    }
+                }
+            }
+            .font(SDTheme.Font.secondary)
+            Text("Sizes on disk. Other used is everything outside the scanned folders.")
+                .font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
         }
     }
 }

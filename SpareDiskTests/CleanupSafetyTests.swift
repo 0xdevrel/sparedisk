@@ -27,6 +27,14 @@ struct CleanupSafetyTests {
         #expect(plan.map(\.id) == ["p", "o"])
     }
 
+    @Test func normalizeCountsSamePathOnceAcrossSources() {
+        // Browse ids look like "loc/name", Find ids like "loc#/full/path".
+        let browse = item("/tmp/scope/big.mov", "/tmp/scope/big.mov")
+        let find = item("/tmp/scope#/tmp/scope/big.mov", "/tmp/scope/big.mov")
+        let plan = CleanupService.normalize([browse, find])
+        #expect(plan.count == 1)
+    }
+
     @Test func normalizeKeepsSiblingPrefixAsSeparate() {
         // "/tmp/scope/Big" must not swallow "/tmp/scope/Bigger".
         let plan = CleanupService.normalize([
@@ -108,5 +116,45 @@ struct CleanupRevalidationTests {
         // A real change is still caught.
         try Data(repeating: 3, count: 10).write(to: root.appendingPathComponent("loose.bin"))
         #expect(CleanupService.revalidate(url: URL(fileURLWithPath: loose.path), node: loose, scope: root) != .ok)
+    }
+
+    @Test func nestedChangeInsideFolderIsCaught() async throws {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let root = base.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deep = root.appendingPathComponent("Project/src/lib")
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 2048).write(to: deep.appendingPathComponent("a.bin"))
+
+        let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
+        let project = try #require(result.topNodes.first(where: { $0.name == "Project" }))
+        let staged = Date()
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, stagedAt: staged) == .ok)
+
+        // Two levels down: the folder's own date does not move.
+        try await Task.sleep(for: .seconds(1.2))
+        try Data(repeating: 9, count: 10).write(to: deep.appendingPathComponent("a.bin"))
+        let after = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, stagedAt: staged)
+        guard case .changed = after else { Issue.record("expected .changed, got \(after)"); return }
+    }
+
+    @Test func savedScanKeepsSubSecondDatesAndBrowseIdentity() async throws {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let root = base.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(repeating: 2, count: 4096).write(to: root.appendingPathComponent("loose.bin"))
+
+        let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
+        let data = try #require(ScanStore.encode(result))
+        let reloaded = try #require(ScanStore.decode(data))
+        let loose = try #require(reloaded.topNodes.first(where: { $0.name == "loose.bin" }))
+
+        // Browse nodes carry inode identity like Find candidates do.
+        #expect(loose.fsFileNumber != nil)
+        // Unchanged after a relaunch means unchanged.
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: loose.path), node: loose, scope: root) == .ok)
+        let original = try #require(result.topNodes.first(where: { $0.name == "loose.bin" }))
+        #expect(CleanupService.sameInstant(original.modified!, loose.modified!))
     }
 }

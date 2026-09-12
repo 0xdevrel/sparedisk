@@ -15,7 +15,7 @@
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<string>C617.1</string>
+				<string>CA92.1</string>
 			</array>
 		</dict>
 		<dict>
@@ -24,6 +24,8 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>DDA9.1</string>
+				<string>C617.1</string>
+				<string>3B52.1</string>
 			</array>
 		</dict>
 		<dict>

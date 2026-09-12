@@ -133,6 +133,10 @@ nonisolated struct SDLocation: Identifiable, Hashable {
     var access: Access
     var capacityBytes: Int64
     var availableBytes: Int64
+    /// Volume the folder lives on, so the storage picture never adds a
+    /// folder on one disk to the capacity of another.
+    var volumeUUID: String? = nil
+    var volumeName: String? = nil
     var scannedBytes: Int64
     var scannedAt: Date
     var issues: Int
@@ -146,6 +150,9 @@ nonisolated struct ReviewItem: Identifiable, Hashable {
     var source: String
     var reason: String
     var risk: String
+    /// When the user staged it. Anything inside a folder modified after this
+    /// instant means the folder is no longer what was reviewed.
+    var stagedAt: Date = Date()
 }
 
 // MARK: - App state
@@ -155,6 +162,7 @@ enum SDSidebarSelection: Hashable {
     case location(String)
     case largeFiles
     case olderFiles
+    case fileTypes
     case duplicates
     case review
 }
@@ -438,7 +446,7 @@ final class AppState {
     var searchPrompt: String {
         switch selection {
         case .location: return "Search in \(activeLocation?.name ?? "location")"
-        case .largeFiles, .olderFiles, .duplicates: return "Search scanned files"
+        case .largeFiles, .olderFiles, .fileTypes, .duplicates: return "Search scanned files"
         default: return "Search"
         }
     }

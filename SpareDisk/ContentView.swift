@@ -11,17 +11,18 @@ struct ContentView: View {
 
     private var showsViewPicker: Bool {
         switch app.selection {
-        case .location, .largeFiles, .olderFiles, .duplicates: true
+        case .location, .largeFiles, .olderFiles, .fileTypes, .duplicates: true
         default: false
         }
     }
 
     private var title: String {
         switch app.selection {
-        case .overview: "Overview"
+        case .overview: "My Mac"
         case .location: app.activeLocation?.name ?? "Location"
         case .largeFiles: "Large Files"
         case .olderFiles: "Older Files"
+        case .fileTypes: "File Types"
         case .duplicates: "Duplicates"
         case .review: "Review Cleanup"
         }
@@ -120,6 +121,7 @@ struct CenterView: View {
             case .location(let id): BrowseView(locationID: id)
             case .largeFiles: LargeFilesView()
             case .olderFiles: OlderFilesView()
+            case .fileTypes: FileTypesView()
             case .duplicates: DuplicatesView()
             case .review: ReviewQueueView()
             }

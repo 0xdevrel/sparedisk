@@ -7,9 +7,19 @@ struct ScanDiffTests {
         ScanNode(id: "/r/\(name)", name: name, path: "/r/\(name)", isFolder: true, category: .other,
                  logicalBytes: bytes, modified: nil, childCount: 1)
     }
-    private func result(_ nodes: [ScanNode], items: Int, at: Date) -> ScanResult {
+    private func result(_ nodes: [ScanNode], items: Int, at: Date, issues: [ScanIssue] = []) -> ScanResult {
         ScanResult(locationID: "/r", rootName: "r", totalBytes: nodes.reduce(0) { $0 + $1.logicalBytes },
-                   itemCount: items, topNodes: nodes, issues: [], startedAt: at, finishedAt: at, wasCancelled: false)
+                   itemCount: items, topNodes: nodes, issues: issues, startedAt: at, finishedAt: at, wasCancelled: false)
+    }
+
+    @Test func unreadableIsNotReportedAsRemoved() {
+        let prev = result([node("a", 100), node("locked", 500)], items: 5, at: Date(timeIntervalSince1970: 0))
+        let cur = result([node("a", 100)], items: 1, at: Date(timeIntervalSince1970: 60),
+                         issues: [ScanIssue(path: "/r/locked", message: "Permission denied")])
+        let d = ScanDiff.between(previous: prev, current: cur)
+        let change = d.changes.first(where: { $0.name == "locked" })
+        #expect(change?.kind == "Unreadable")
+        #expect(change?.delta == 0)
     }
 
     @Test func diffReportsGrowthShrinkageAdditionsAndRemovals() {

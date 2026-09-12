@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Overview: the whole storage picture. The volume with each analyzed
+// My Mac: the whole storage picture. The volume with each analyzed
 // location as a segment, then every location with its own scan control,
 // then a map of the largest scanned location and the biggest files.
 struct OverviewView: View {
@@ -10,7 +10,6 @@ struct OverviewView: View {
     @State private var showTotalsExplanation = false
 
     private var scanned: [SDLocation] { app.locations.filter { app.scans[$0.id] != nil } }
-    private var volume: SDLocation? { app.locations.first(where: { $0.capacityBytes > 0 }) }
     private var featured: SDLocation? {
         scanned.max { (app.scans[$0.id]?.totalAllocated ?? 0) < (app.scans[$1.id]?.totalAllocated ?? 0) }
     }
@@ -72,22 +71,23 @@ struct OverviewView: View {
 
     // MARK: - Volume
 
+    private var summary: StorageSummary? { app.storageSummary }
+
     private var volumeSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let v = volume, v.capacityBytes > 0 {
-                let used = max(0, v.capacityBytes - v.availableBytes)
+            if let s = summary {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("\(SDFormat.bytesString(used)) used").font(SDTheme.Font.figure)
+                    Text("\(SDFormat.bytesString(s.used)) used").font(SDTheme.Font.figure)
                     Spacer()
-                    Text("\(SDFormat.bytesString(v.availableBytes)) available of \(SDFormat.bytesString(v.capacityBytes))")
+                    Text("\(SDFormat.bytesString(s.volume.availableBytes)) available of \(SDFormat.bytesString(s.volume.capacityBytes))")
                         .font(SDTheme.Font.body).foregroundStyle(.secondary)
                 }
-                SegmentedCapacityBar(segments: segments(capacity: v.capacityBytes, used: used), capacity: v.capacityBytes)
+                SegmentedCapacityBar(segments: segments(s), capacity: s.volume.capacityBytes)
                     .frame(height: 14)
                 HStack(alignment: .top, spacing: 14) {
                     FlowLayout(spacing: 14, rowSpacing: 4) {
-                        ForEach(Array(scanned.enumerated()), id: \.element.id) { i, loc in
-                            legend(color: SDTheme.hue(i, scheme: scheme), name: loc.name)
+                        ForEach(s.parts) { part in
+                            legend(color: SDTheme.hue(part.rank, scheme: scheme), name: part.name)
                         }
                         legend(color: Color.primary.opacity(0.28), name: "Other")
                     }
@@ -105,6 +105,12 @@ struct OverviewView: View {
                         }
                 }
                 .font(SDTheme.Font.secondary)
+                if !s.elsewhere.isEmpty {
+                    Text("On other disks: " + s.elsewhere.map { loc in
+                        "\(loc.name) \(SDFormat.bytesString(app.scans[loc.id].map(app.diskBytes) ?? 0))"
+                    }.joined(separator: ", "))
+                        .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+                }
             } else {
                 Text("Volume capacity is not available for these locations.")
                     .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
@@ -112,22 +118,9 @@ struct OverviewView: View {
         }
     }
 
-    private func segments(capacity: Int64, used: Int64) -> [SegmentedCapacityBar.Segment] {
-        var out: [SegmentedCapacityBar.Segment] = []
-        var accounted: Int64 = 0
-        // Skip a location nested inside an already-counted one so bytes are not drawn twice.
-        var counted: [String] = []
-        for (i, loc) in scanned.enumerated() {
-            let bytes = app.scans[loc.id].map(diskBytes) ?? 0
-            let nested = counted.contains { CleanupService.isWithin(loc.id, root: $0) }
-            if !nested {
-                out.append(.init(id: loc.id, bytes: bytes, color: SDTheme.hue(i, scheme: scheme)))
-                accounted += bytes
-            }
-            counted.append(loc.id)
-        }
-        out.append(.init(id: "__other", bytes: max(0, used - accounted), color: Color.primary.opacity(0.22)))
-        return out
+    private func segments(_ s: StorageSummary) -> [SegmentedCapacityBar.Segment] {
+        s.parts.map { .init(id: $0.id, bytes: $0.bytes, color: SDTheme.hue($0.rank, scheme: scheme)) }
+            + [.init(id: "__other", bytes: s.other, color: Color.primary.opacity(0.22))]
     }
 
     private func legend(color: Color, name: String) -> some View {
@@ -138,40 +131,12 @@ struct OverviewView: View {
         .fixedSize()
     }
 
-    /// On-disk bytes for a scan, falling back to logical size for results
-    /// saved before allocation was tracked.
-    private func diskBytes(_ scan: ScanResult) -> Int64 {
-        scan.totalAllocated > 0 ? scan.totalAllocated : scan.totalBytes
-    }
-
     // MARK: - File types
 
-    /// Bytes by category across scanned locations, skipping a location
-    /// nested in another so nothing is counted twice.
-    private var typeTotals: [(category: SDFileCategory, bytes: Int64)] {
-        var counted: [String] = []
-        var acc: [SDFileCategory: Int64] = [:]
-        for loc in scanned {
-            // Scans saved before category totals existed contribute nothing
-            // and do not shadow a nested location that has them.
-            guard let scan = app.scans[loc.id], !scan.categoryBytes.isEmpty else { continue }
-            if counted.contains(where: { CleanupService.isWithin(loc.id, root: $0) }) { continue }
-            counted.append(loc.id)
-            for (k, v) in scan.categoryBytes {
-                guard let c = SDFileCategory(rawValue: k) else { continue }
-                acc[c == .unknown ? .other : c, default: 0] += v   // one catch-all in the legend
-            }
-        }
-        return acc.map { ($0.key, $0.value) }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
-    }
-
-    /// Locations whose saved scan predates category totals.
-    private var typesMissing: [SDLocation] {
-        scanned.filter { app.scans[$0.id]?.categoryBytes.isEmpty ?? false }
-    }
+    private var typeTotals: [(category: SDFileCategory, bytes: Int64)] { app.categoryTotals }
 
     private var typesFootnote: String {
-        let missing = typesMissing
+        let missing = app.categoryTotalsMissing
         if missing.isEmpty { return "Logical size of files inside the scanned locations, by kind." }
         let names = missing.map(\.name).joined(separator: ", ")
         return "Logical size of files by kind. Rescan \(names) to include " + (missing.count == 1 ? "it." : "them.")
@@ -206,7 +171,7 @@ struct OverviewView: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader(title: "Locations")
             ForEach(Array(app.locations.enumerated()), id: \.element.id) { i, loc in
-                LocationRow(location: loc, color: SDTheme.hue(scanned.firstIndex(where: { $0.id == loc.id }) ?? i, scheme: scheme))
+                LocationRow(location: loc, color: SDTheme.hue(i, scheme: scheme))
                 if loc.id != app.locations.last?.id { Divider() }
             }
             Button("Add Location…", systemImage: "plus") { Task { await app.addLocationFlow() } }
@@ -266,7 +231,7 @@ struct OverviewView: View {
                 .buttonStyle(.plain)
                 .frame(height: SDTheme.rowHeight + 6)
                 .background(app.inspectedNodeID == node.id ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 5))
-                .contextMenu { NodeContextMenu(node: node, source: "Overview") }
+                .contextMenu { NodeContextMenu(node: node, source: "My Mac") }
                 if node.id != biggestFiles.last?.id { Divider() }
             }
         }
