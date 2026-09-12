@@ -138,12 +138,14 @@ struct ContentView: View {
     /// `-windowSize 1280x800`: a fixed content size for reproducible
     /// screenshots. Ignored without the argument.
     private static func applyWindowSizeArgument() {
+        #if DEBUG
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "-windowSize"), i + 1 < args.count else { return }
         let parts = args[i + 1].split(separator: "x").compactMap { Double($0) }
         guard parts.count == 2, let window = NSApp.windows.first(where: { $0.isVisible }) else { return }
         window.setContentSize(NSSize(width: parts[0], height: parts[1]))
         window.center()
+        #endif
     }
 }
 

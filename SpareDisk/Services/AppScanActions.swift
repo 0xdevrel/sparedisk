@@ -8,6 +8,7 @@ extension AppState {
     /// screen on every machine. Never active without the argument.
     @MainActor
     func setUpUITestFixtureIfRequested() -> Bool {
+        #if DEBUG
         guard CommandLine.arguments.contains("-uiTestFixture") else { return false }
         if CommandLine.arguments.contains("-uiTestFirstLaunch") {
             locations = []
@@ -36,12 +37,16 @@ extension AppState {
         rebuildIndex()
         startScan(locationID: grant.id, url: grant.url)
         return true
+        #else
+        return false
+        #endif
     }
 
     /// `-demoPath <folder>`: grant and scan one folder inside the container in
     /// place of stored locations, for screenshots with neutral data.
     @MainActor
     func setUpDemoPathIfRequested() -> Bool {
+        #if DEBUG
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "-demoPath"), i + 1 < args.count else { return false }
         let url = URL(fileURLWithPath: args[i + 1])
@@ -58,6 +63,9 @@ extension AppState {
             startScan(locationID: grant.id, url: grant.url)
         }
         return true
+        #else
+        return false
+        #endif
     }
 
     @MainActor
