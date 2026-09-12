@@ -187,7 +187,7 @@ struct TreemapView: View {
         return ZStack(alignment: .topLeading) {
             ForEach(frames, id: \.id) { frame in
                 if let entry = byID[frame.id] {
-                    let r = frame.rect.insetBy(dx: 1, dy: 1)
+                    let r = frame.rect.insetBy(dx: 1, dy: 1).standardized.intersection(frame.rect)
                     Group {
                         if entry.isOther {
                             otherCell(entry: entry, rect: r)
@@ -274,12 +274,12 @@ struct TreemapView: View {
                 cellLabel(node: node, plan: labels)
                     .foregroundStyle(labelColor(for: node, hue: hue, emphasized: isHovered || isSelected))
                     .padding(.horizontal, 5)
-                    .frame(width: rect.width, height: headerH, alignment: .leading)
+                    .frame(width: max(0, rect.width), height: headerH, alignment: .leading)
             }
             if canNest {
                 ForEach(childFrames, id: \.id) { frame in
                     if let entry = nestedByID[frame.id] {
-                        let r = frame.rect.insetBy(dx: 1, dy: 1)
+                        let r = frame.rect.insetBy(dx: 1, dy: 1).standardized.intersection(frame.rect).standardized.intersection(frame.rect)
                         nestedCell(entry: entry, rect: r, parent: fillComponents(for: node, hue: hue))
                             .frame(width: max(0, r.width), height: max(0, r.height))
                             .position(x: frame.rect.midX, y: frame.rect.midY)
@@ -399,7 +399,7 @@ struct TreemapView: View {
                     }
                 }
                 .padding(.horizontal, 5)
-                .frame(width: rect.width, height: headerHeight(for: labels), alignment: .leading)
+                .frame(width: max(0, rect.width), height: headerHeight(for: labels), alignment: .leading)
             }
             Rectangle().stroke(Color.primary.opacity(0.12), lineWidth: 1)
         }

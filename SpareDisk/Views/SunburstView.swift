@@ -193,7 +193,7 @@ struct SunburstView: View {
                 Text("Click to go up").font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
-        .frame(width: inner * 1.6)
+        .frame(width: max(0, inner * 1.6))
     }
 
     // MARK: - Geometry
