@@ -11,6 +11,8 @@ struct SunburstView: View {
     let nodes: [ScanNode]
     /// Label for the root when the nodes are a Find result, not a location.
     var rootTitle: String?
+    /// Sector under the pointer and where the pointer is, for the hover label.
+    @State private var hovered: (id: String, point: CGPoint)?
 
     /// A flat list of files has nothing for an outer ring, so the one ring
     /// takes the whole radius instead of leaving an empty band.
@@ -49,12 +51,29 @@ struct SunburstView: View {
                             path.addArc(center: c, radius: r0, startAngle: .radians(s.end - .pi / 2), endAngle: .radians(s.start - .pi / 2), clockwise: true)
                             path.closeSubpath()
                             let selected = s.node != nil && s.node?.id == app.inspectedNodeID
-                            ctx.fill(path, with: .color(s.color.opacity(selected ? 1 : 0.85)))
+                            let isHovered = hovered?.id == s.id
+                            ctx.fill(path, with: .color(s.color.opacity(selected || isHovered ? 1 : 0.85)))
                             ctx.stroke(path, with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: selected ? 0 : 1.5)
                             if selected { ctx.stroke(path, with: .color(.accentColor), lineWidth: 2.5) }
+                            else if isHovered { ctx.stroke(path, with: .color(.primary.opacity(0.55)), lineWidth: 1.5) }
                         }
                     }
                     centerLabel(side: side)
+                    if let hovered, let s = sectors.first(where: { $0.id == hovered.id }) {
+                        hoverLabel(for: s, at: hovered.point, in: geo.size)
+                    }
+                }
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let location):
+                        if let s = hit(location, in: geo.size, side: side, sectors: sectors) {
+                            hovered = (s.id, location)
+                        } else {
+                            hovered = nil
+                        }
+                    case .ended:
+                        hovered = nil
+                    }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .contentShape(Rectangle())
@@ -174,6 +193,39 @@ struct SunburstView: View {
             if d >= r0 && d <= r1 && angle >= s.start && angle < s.end { return s }
         }
         return nil
+    }
+
+    /// Name, size and share of the level, next to the pointer and kept
+    /// inside the chart. Sizes follow the size basis like everything else.
+    private func hoverLabel(for s: Sector, at point: CGPoint, in size: CGSize) -> some View {
+        let levelTotal = max(1, levelNodes.reduce(0) { $0 + app.bytes($1) })
+        let parentBytes: Int64 = s.ring == 1
+            ? (levelNodes.first(where: { $0.id == s.parentID }).map(app.bytes) ?? levelTotal)
+            : levelTotal
+        let share = Double(s.bytes) / Double(max(1, parentBytes)) * 100
+        let title = s.node?.name ?? "Smaller items"
+        let detail = s.node == nil
+            ? "\(SDFormat.bytesString(s.bytes)), \(share.formatted(.number.precision(.fractionLength(share < 10 ? 1 : 0))))% of this level"
+            : "\(SDFormat.bytesString(s.bytes)), \(share.formatted(.number.precision(.fractionLength(share < 10 ? 1 : 0))))% of \(s.ring == 1 ? "its folder" : "this level")"
+        let width: CGFloat = 240, height: CGFloat = 46
+        // Below and to the right of the pointer, flipped when it would leave the view.
+        let x = point.x + 14 + width / 2 > size.width ? point.x - 14 - width / 2 : point.x + 14 + width / 2
+        let y = point.y + 16 + height / 2 > size.height ? point.y - 16 - height / 2 : point.y + 16 + height / 2
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                if let n = s.node { CategoryDot(category: n.category) }
+                Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+            }
+            Text(detail).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .frame(width: width, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.12), lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+        .position(x: x, y: y)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     /// Arrow keys move the selection around the inner ring.
