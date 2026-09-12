@@ -45,10 +45,40 @@ enum SDTheme {
     /// Category color adjusted for the appearance: lifted toward white in
     /// dark mode so saturated fills stay recognizable.
     static func color(for category: SDFileCategory, scheme: ColorScheme) -> Color {
+        let c = categoryComponents(category, scheme: scheme)
+        return Color(red: c.r, green: c.g, blue: c.b)
+    }
+
+    static func categoryComponents(_ category: SDFileCategory, scheme: ColorScheme) -> (r: Double, g: Double, b: Double) {
         let (r, g, b) = rgb(category)
-        guard scheme == .dark else { return Color(red: r, green: g, blue: b) }
+        guard scheme == .dark else { return (r, g, b) }
         let lift = 0.22
-        return Color(red: r + (1 - r) * lift, green: g + (1 - g) * lift, blue: b + (1 - b) * lift)
+        return (r + (1 - r) * lift, g + (1 - g) * lift, b + (1 - b) * lift)
+    }
+
+    /// The window background each map fill is composited over.
+    static func backgroundLuminanceComponents(scheme: ColorScheme) -> (r: Double, g: Double, b: Double) {
+        scheme == .dark ? (0.118, 0.118, 0.118) : (1, 1, 1)
+    }
+
+    /// The fill a cell actually shows: the mode's color at the map opacity
+    /// over the window background.
+    static func effectiveFill(_ c: (r: Double, g: Double, b: Double), alpha: Double, scheme: ColorScheme) -> (r: Double, g: Double, b: Double) {
+        let bg = backgroundLuminanceComponents(scheme: scheme)
+        return (c.r * alpha + bg.r * (1 - alpha), c.g * alpha + bg.g * (1 - alpha), c.b * alpha + bg.b * (1 - alpha))
+    }
+
+    /// White or near-black, whichever reads better on the fill. One of the
+    /// two always clears 4.5:1, so labels never depend on the fill's hue.
+    static func labelComponents(over fill: (r: Double, g: Double, b: Double)) -> (r: Double, g: Double, b: Double) {
+        let light: (r: Double, g: Double, b: Double) = (1, 1, 1)
+        let dark: (r: Double, g: Double, b: Double) = (0.08, 0.08, 0.09)
+        return contrast(fill, light) >= contrast(fill, dark) ? light : dark
+    }
+
+    static func labelColor(over fill: (r: Double, g: Double, b: Double)) -> Color {
+        let c = labelComponents(over: fill)
+        return Color(red: c.r, green: c.g, blue: c.b)
     }
 
     /// Flat map fill. Light mode wants a pastel over white; dark mode wants
@@ -129,11 +159,17 @@ enum SDTheme {
     }
 
     /// Sequential scale: recent files vivid, old files washed toward grey.
-    static func ageColor(bucket: Int, scheme: ColorScheme) -> Color {
+    static func ageComponents(bucket: Int, scheme: ColorScheme) -> (r: Double, g: Double, b: Double) {
         let t = Double(bucket) / Double(max(ageBuckets.count - 1, 1)) // 0 old … 1 new
-        let grey = scheme == .dark ? (0.42, 0.44, 0.48) : (0.72, 0.74, 0.78)
-        let blue = scheme == .dark ? (0.30, 0.52, 0.86) : (0.36, 0.55, 0.86)
-        return Color(red: grey.0 + (blue.0 - grey.0) * t, green: grey.1 + (blue.1 - grey.1) * t, blue: grey.2 + (blue.2 - grey.2) * t)
+        // Dark fills stay deep enough that white labels clear AA on every step.
+        let grey = scheme == .dark ? (0.30, 0.32, 0.35) : (0.72, 0.74, 0.78)
+        let blue = scheme == .dark ? (0.22, 0.40, 0.70) : (0.36, 0.55, 0.86)
+        return (grey.0 + (blue.0 - grey.0) * t, grey.1 + (blue.1 - grey.1) * t, grey.2 + (blue.2 - grey.2) * t)
+    }
+
+    static func ageColor(bucket: Int, scheme: ColorScheme) -> Color {
+        let c = ageComponents(bucket: bucket, scheme: scheme)
+        return Color(red: c.r, green: c.g, blue: c.b)
     }
 
     static let rowHeight: CGFloat = 34

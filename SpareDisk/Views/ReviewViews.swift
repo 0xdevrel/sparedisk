@@ -42,7 +42,9 @@ struct ReviewQueueView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List {
+                // Rows select like everywhere else; the inspector shows the
+                // queued item from its stored record even after a rescan.
+                List(selection: Binding(get: { app.selectedIDs }, set: { app.selectedIDs = $0 })) {
                     if let summary = app.lastCleanupSummary {
                         Section {
                             VStack(alignment: .leading, spacing: 6) {
@@ -94,10 +96,13 @@ struct ReviewQueueView: View {
                                     }
                                     Spacer()
                                     MonospaceBytes(bytes: app.bytes(item.node))
-                                    Button("Remove") { app.toggleReview(item.node, source: item.source) }
+                                    Button("Remove") { app.removeFromReview(id: item.id) }
                                         .buttonStyle(.link)
                                 }
                                 .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                                .contextMenu { NodeContextMenu(node: item.node, source: item.source) }
+                                .tag(item.node.id)
                             }
                         }
                     } else if movedCount > 0 {
@@ -151,21 +156,26 @@ struct StatusBarView: View {
             } else if let s = app.lastCleanupSummary {
                 Image(systemName: "trash.fill").foregroundStyle(.secondary)
                 Text(s).font(SDTheme.Font.secondary)
-            } else if let scan = app.activeScan, app.hasRealData {
+            } else if case .location = app.selection, let scan = app.activeScan, app.hasRealData {
                 if scan.wasCancelled {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.orange)
                     Text("Scan cancelled").font(SDTheme.Font.secondary)
                 } else if scan.issues.isEmpty {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("\(scan.itemCount.formatted()) items, \(SDFormat.bytesString(scan.totalBytes))").font(SDTheme.Font.secondary)
+                    Text("\(scan.itemCount.formatted()) items, \(SDFormat.bytesString(app.total(of: scan)))").font(SDTheme.Font.secondary)
                 } else {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text("\(scan.itemCount.formatted()) items, \(SDFormat.bytesString(scan.totalBytes)). \(scan.issues.count) folders could not be read.").font(SDTheme.Font.secondary)
+                    Text("\(scan.itemCount.formatted()) items, \(SDFormat.bytesString(app.total(of: scan))). \(scan.issues.count) folders could not be read.").font(SDTheme.Font.secondary)
                 }
-            } else {
+            } else if !app.hasRealData {
                 Image(systemName: "info.circle").foregroundStyle(.secondary)
-                Text(app.hasRealData ? "Not scanned yet" : "No locations yet").font(SDTheme.Font.secondary)
+                Text("No locations yet").font(SDTheme.Font.secondary)
+            } else if case .location = app.selection {
+                Image(systemName: "info.circle").foregroundStyle(.secondary)
+                Text("Not scanned yet").font(SDTheme.Font.secondary)
             }
+            // Find and Review screens span every location, so the bar does
+            // not describe whichever location happened to be active last.
             Spacer()
             if !app.reviewPlan.isEmpty {
                 Button("Review \(app.reviewPlan.count) \(app.reviewPlan.count == 1 ? "item" : "items"), \(SDFormat.bytesString(app.reviewPlanBytes))") {

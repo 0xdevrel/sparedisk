@@ -44,7 +44,9 @@ extension AppState {
                     nodes.append(ScanNode(id: "\(home.id)#\(c.path)", name: name, path: c.path,
                                           isFolder: true, isPackage: false, category: .system,
                                           logicalBytes: result.totalBytes, modified: st.modified,
-                                          childCount: result.itemCount, allocatedBytes: result.totalAllocated,
+                                          childCount: result.itemCount,
+                                          fsFileNumber: st.ino, fsVolumeNumber: st.dev,
+                                          allocatedBytes: result.totalAllocated,
                                           ownedByOthers: st.uid != ScanEngine.currentUID))
                 } else {
                     nodes.append(ScanNode(id: "\(home.id)#\(c.path)", name: name, path: c.path,

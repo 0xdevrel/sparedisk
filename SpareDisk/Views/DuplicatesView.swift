@@ -70,9 +70,9 @@ struct DuplicatesView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if app.viewMode == .sunburst {
-                SunburstView(nodes: filteredGroups.flatMap(\.files), rootTitle: "Duplicates")
+                SunburstView(nodes: groupNodes, rootTitle: "Duplicates")
             } else if app.viewMode != .list {
-                TreemapView(nodes: filteredGroups.flatMap(\.files), rootTitle: "Duplicates")
+                TreemapView(nodes: groupNodes, rootTitle: "Duplicates")
             } else {
                 List(selection: Binding(get: { app.selectedIDs }, set: { app.selectedIDs = $0 })) {
                     ForEach(filteredGroups) { group in
@@ -123,6 +123,23 @@ struct DuplicatesView: View {
 
     private var redundantTotal: Int64 {
         app.duplicateGroups.reduce(0) { $0 + $1.redundantLogicalBytes }
+    }
+
+    /// Charts show each group as one unit holding its copies, with the kept
+    /// copy named, so the picture matches the decision the list asks for.
+    private var groupNodes: [ScanNode] {
+        filteredGroups.map { g in
+            let keeperID = app.duplicateKeepers[g.id] ?? g.files[0].id
+            let copies = g.files.map { f in
+                var n = f
+                if f.id == keeperID { n.name = "\(f.name) (kept)" }
+                return n
+            }
+            return ScanNode(id: "dupgroup:\(g.id)", name: "\(g.files.count) copies of \(g.files[0].name)", path: "",
+                            isFolder: true, category: g.files[0].category,
+                            logicalBytes: g.bytesPerFile * Int64(g.files.count), modified: nil,
+                            childCount: g.files.count, children: copies)
+        }
     }
 
     private var filteredGroups: [DuplicateGroup] {

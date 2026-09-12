@@ -72,6 +72,19 @@ struct DuplicateTests {
         #expect(partial.protected.isEmpty)
     }
 
+    @Test func missingKeeperBlocksTheWholeGroup() {
+        func file(_ id: String, _ path: String) -> ScanNode {
+            ScanNode(id: id, name: (path as NSString).lastPathComponent, path: path, isFolder: false,
+                     category: .documents, logicalBytes: 10, modified: nil, childCount: 0)
+        }
+        let a = file("a", "/tmp/nowhere/a.pdf"), b = file("b", "/tmp/nowhere/b.pdf")
+        let g = DuplicateGroup(id: "g", digestHex: "x", bytesPerFile: 10, files: [a, b])
+        let plan = [ReviewItem(id: a.id, node: a, source: "T", reason: "T", risk: "T")]
+        let out = DuplicateService.requireKeepers(plan: plan, groups: [g], keepers: ["g": "b"])
+        #expect(out.kept.isEmpty)
+        #expect(out.blocked.map(\.id) == ["a"])
+    }
+
     @Test func protectKeepersSeesThroughFoldersAndOtherIDs() {
         func file(_ id: String, _ path: String) -> ScanNode {
             ScanNode(id: id, name: (path as NSString).lastPathComponent, path: path, isFolder: false,

@@ -62,6 +62,22 @@ struct ScanEngineTests {
         #expect(result.categoryBytes[SDFileCategory.media.rawValue] == 4096)
     }
 
+    @Test func largeDiskFileIsNotLostBehindSparseLogicalCandidates() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for i in 0..<201 {
+            let h = try FileHandle(forWritingTo: { let u = root.appendingPathComponent("sparse-\(i).bin"); FileManager.default.createFile(atPath: u.path, contents: nil); return u }())
+            try h.truncate(atOffset: 2_000_000)   // 2 MB logical, nothing allocated
+            try h.close()
+        }
+        try Data(repeating: 7, count: 1_000_000).write(to: root.appendingPathComponent("dense.bin"))
+
+        let result = await ScanEngine.scan(locationID: "t", rootName: "T", root: root) { _ in }
+        #expect(!result.largestFiles.contains { $0.name == "dense.bin" })
+        #expect(result.largestFilesOnDisk.first?.name == "dense.bin")
+    }
+
     @Test func rawExtensionSplitsCameraFilesFromDiskImages() {
         #expect(ScanEngine.category(name: "P1000123.RAW", ext: "raw", isDir: false, size: 24_000_000) == .media)
         #expect(ScanEngine.category(name: "Docker.raw", ext: "raw", isDir: false, size: 2_000_000_000) == .developer)

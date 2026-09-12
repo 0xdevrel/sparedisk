@@ -42,6 +42,9 @@ nonisolated struct ScanResult: Hashable, Codable {
     var itemCount: Int
     var topNodes: [ScanNode]
     var largestFiles: [ScanNode] = []
+    /// The same ranking by allocated size, so switching to sizes on disk
+    /// never hides a dense file behind sparse ones that only look large.
+    var largestFilesOnDisk: [ScanNode] = []
     var oldestFiles: [ScanNode] = []
     var issues: [ScanIssue]
     var startedAt: Date
@@ -57,12 +60,14 @@ nonisolated struct ScanResult: Hashable, Codable {
 
     init(locationID: String, rootName: String, totalBytes: Int64, totalAllocated: Int64 = 0,
          categoryBytes: [String: Int64] = [:], itemCount: Int,
-         topNodes: [ScanNode], largestFiles: [ScanNode] = [], oldestFiles: [ScanNode] = [], issues: [ScanIssue],
+         topNodes: [ScanNode], largestFiles: [ScanNode] = [], largestFilesOnDisk: [ScanNode] = [],
+         oldestFiles: [ScanNode] = [], issues: [ScanIssue],
          startedAt: Date, finishedAt: Date, wasCancelled: Bool) {
         self.locationID = locationID; self.rootName = rootName; self.totalBytes = totalBytes
         self.totalAllocated = totalAllocated; self.categoryBytes = categoryBytes
         self.itemCount = itemCount; self.topNodes = topNodes
-        self.largestFiles = largestFiles; self.oldestFiles = oldestFiles; self.issues = issues
+        self.largestFiles = largestFiles; self.largestFilesOnDisk = largestFilesOnDisk
+        self.oldestFiles = oldestFiles; self.issues = issues
         self.startedAt = startedAt; self.finishedAt = finishedAt; self.wasCancelled = wasCancelled
     }
 
@@ -77,6 +82,7 @@ nonisolated struct ScanResult: Hashable, Codable {
         itemCount = try c.decode(Int.self, forKey: .itemCount)
         topNodes = try c.decode([ScanNode].self, forKey: .topNodes)
         largestFiles = try c.decodeIfPresent([ScanNode].self, forKey: .largestFiles) ?? []
+        largestFilesOnDisk = try c.decodeIfPresent([ScanNode].self, forKey: .largestFilesOnDisk) ?? []
         oldestFiles = try c.decodeIfPresent([ScanNode].self, forKey: .oldestFiles) ?? []
         issues = try c.decodeIfPresent([ScanIssue].self, forKey: .issues) ?? []
         startedAt = try c.decode(Date.self, forKey: .startedAt)
@@ -128,7 +134,7 @@ nonisolated enum ScanEngine {
                           categoryBytes: Dictionary(uniqueKeysWithValues: state.byCategory.map { ($0.key.rawValue, $0.value) }),
                           itemCount: state.count,
                           topNodes: buildTree(state: state, locationID: locationID, rootPath: rootPath),
-                          largestFiles: state.largest, oldestFiles: state.oldest,
+                          largestFiles: state.largest, largestFilesOnDisk: state.largestDisk, oldestFiles: state.oldest,
                           issues: issues,
                           startedAt: started, finishedAt: Date(),
                           wasCancelled: cancel.isSet || Task.isCancelled)
@@ -183,6 +189,8 @@ nonisolated enum ScanEngine {
         var links: [FileIdentity: LinkHit] = [:]
         var largest: [ScanNode] = []
         var smallestTracked: Int64 = 0
+        var largestDisk: [ScanNode] = []
+        var smallestTrackedDisk: Int64 = 0
         var oldest: [ScanNode] = []
         var newestTracked: Date = .distantFuture
     }
@@ -461,10 +469,13 @@ nonisolated enum ScanEngine {
                     }
                 }
                 out.largest.append(contentsOf: s.largest)
+                out.largestDisk.append(contentsOf: s.largestDisk)
                 out.oldest.append(contentsOf: s.oldest)
             }
             out.largest.sort { $0.logicalBytes > $1.logicalBytes }
             if out.largest.count > candidateCap { out.largest.removeLast(out.largest.count - candidateCap) }
+            out.largestDisk.sort { ($0.allocatedBytes ?? 0) > ($1.allocatedBytes ?? 0) }
+            if out.largestDisk.count > candidateCap { out.largestDisk.removeLast(out.largestDisk.count - candidateCap) }
             out.oldest.sort { ($0.modified ?? .distantPast) < ($1.modified ?? .distantPast) }
             if out.oldest.count > candidateCap { out.oldest.removeLast(out.oldest.count - candidateCap) }
             return out
@@ -475,9 +486,10 @@ nonisolated enum ScanEngine {
     fileprivate static func consider(candidate st: Stat, name: String, path: String, ext: String,
                                      locationID: String, state: inout WalkState) {
         let wantsLargest = st.size > state.smallestTracked || state.largest.count < candidateCap
+        let wantsLargestDisk = st.allocated > state.smallestTrackedDisk || state.largestDisk.count < candidateCap
         let wantsOldest = st.modified != nil
             && (st.modified! < state.newestTracked || state.oldest.count < candidateCap)
-        guard wantsLargest || wantsOldest else { return }
+        guard wantsLargest || wantsLargestDisk || wantsOldest else { return }
         let node = ScanNode(id: "\(locationID)#\(path)", name: name, path: path,
                             isFolder: false, category: category(name: name, ext: ext, isDir: false, size: st.size),
                             logicalBytes: st.size, modified: st.modified, childCount: 0,
@@ -489,6 +501,11 @@ nonisolated enum ScanEngine {
             insertSorted(&state.largest, node) { $0.logicalBytes > $1.logicalBytes }
             if state.largest.count > candidateCap { state.largest.removeLast() }
             state.smallestTracked = state.largest.last?.logicalBytes ?? 0
+        }
+        if wantsLargestDisk {
+            insertSorted(&state.largestDisk, node) { ($0.allocatedBytes ?? 0) > ($1.allocatedBytes ?? 0) }
+            if state.largestDisk.count > candidateCap { state.largestDisk.removeLast() }
+            state.smallestTrackedDisk = state.largestDisk.last?.allocatedBytes ?? 0
         }
         if wantsOldest {
             insertSorted(&state.oldest, node) { ($0.modified ?? .distantPast) < ($1.modified ?? .distantPast) }

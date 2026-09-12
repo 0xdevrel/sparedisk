@@ -39,9 +39,10 @@ extension AppState {
         cleanupResults = []
         lastCleanupSummary = nil
         // A verified group's last remaining copy is never staged (F07).
-        let (keptPlan, keeperSkips) = DuplicateService.protectKeepers(
+        let (protectedPlan, protectedSkips) = DuplicateService.protectKeepers(
             plan: overridePlan.map(CleanupService.normalize) ?? reviewPlan, groups: duplicateGroups, keepers: duplicateKeepers)
-        let plan = keptPlan
+        let (plan, keeperGone) = DuplicateService.requireKeepers(plan: protectedPlan, groups: duplicateGroups, keepers: duplicateKeepers)
+        let keeperSkips = protectedSkips + keeperGone
         guard !plan.isEmpty else {
             cleanupResults = keeperSkips
             lastCleanupSummary = keeperSkips.isEmpty ? nil

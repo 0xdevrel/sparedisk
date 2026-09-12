@@ -251,17 +251,20 @@ extension AppState {
 
     @MainActor
     func forgetLocation(id: String) {
-        cancelScan()
-        cancelDrill()
-        drillGeneration += 1
-        drillScanningID = nil
-        drillProgress = nil
-        // Invalidate any unwinding worker so it cannot re-apply results,
-        // and clear progress if it belonged to this location.
-        scanGeneration += 1
+        // Only this location's work stops. A scan of another location keeps
+        // running and keeps its progress state.
+        scanQueue.removeAll { $0 == id }
         if scanningLocationID == id {
+            cancelScan()
+            scanGeneration += 1
             scanningLocationID = nil
             scanProgress = nil
+        }
+        if let d = drillScanningID, keyIs(d, withinLocation: id) {
+            cancelDrill()
+            drillGeneration += 1
+            drillScanningID = nil
+            drillProgress = nil
         }
         LocationAccessService.forget(id: id)
         ScanStore.remove(locationID: id)
@@ -313,7 +316,11 @@ extension AppState {
             } onCancel: {
                 worker.cancel()
             }
-            guard gen == self.scanGeneration else { return }
+            guard gen == self.scanGeneration else {
+                // Superseded, but never leave this location marked as scanning.
+                if self.scanningLocationID == locationID { self.scanningLocationID = nil; self.scanProgress = nil }
+                return
+            }
             self.applyScan(result, locationID: locationID, gen: gen)
             self.scanningLocationID = nil
             self.scanProgress = nil

@@ -49,26 +49,35 @@ nonisolated enum ScanStore {
         return decode(data)
     }
 
-    /// Dates are stored as whole nanoseconds since 1970. ISO 8601 kept only
-    /// seconds, so after a relaunch every unchanged file compared as
-    /// "changed" against its live sub-second timestamp.
+    /// Dates are stored exactly as Foundation holds them: seconds since
+    /// 2001 as a Double. That round-trips every representable Date without
+    /// loss and, unlike an integer conversion, cannot trap on a date from
+    /// an odd archive or a filesystem in the far future.
     static func encode(_ result: ScanResult) -> Data? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .custom { date, enc in
             var c = enc.singleValueContainer()
-            try c.encode(Int64((date.timeIntervalSince1970 * 1_000_000_000).rounded()))
+            try c.encode(date.timeIntervalSinceReferenceDate)
         }
         return try? encoder.encode(result)
     }
 
-    /// Reads nanosecond dates and, for files written before this format,
-    /// ISO 8601 strings.
+    /// Reads the Double form, the earlier whole-nanosecond form, and the
+    /// original ISO 8601 strings.
     static func decode(_ data: Data) -> ScanResult? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { dec in
             let c = try dec.singleValueContainer()
-            if let ns = try? c.decode(Int64.self) {
-                return Date(timeIntervalSince1970: Double(ns) / 1_000_000_000)
+            if let whole = try? c.decode(Int64.self) {
+                // Nanoseconds since 1970 are far larger than any seconds value.
+                return abs(whole) > 100_000_000_000
+                    ? Date(timeIntervalSince1970: Double(whole) / 1_000_000_000)
+                    : Date(timeIntervalSinceReferenceDate: Double(whole))
+            }
+            if let seconds = try? c.decode(Double.self) {
+                return abs(seconds) > 100_000_000_000
+                    ? Date(timeIntervalSince1970: seconds / 1_000_000_000)
+                    : Date(timeIntervalSinceReferenceDate: seconds)
             }
             let text = try c.decode(String.self)
             if let d = ISO8601DateFormatter().date(from: text) { return d }

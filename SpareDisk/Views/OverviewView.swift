@@ -14,7 +14,7 @@ struct OverviewView: View {
         scanned.max { (app.scans[$0.id]?.totalAllocated ?? 0) < (app.scans[$1.id]?.totalAllocated ?? 0) }
     }
     private var biggestFiles: [ScanNode] {
-        Array(app.scans.values.flatMap(\.largestFiles).sorted { app.bytes($0) > app.bytes($1) }.prefix(8))
+        Array(app.scans.values.flatMap(app.largestCandidates).sorted { app.bytes($0) > app.bytes($1) }.prefix(8))
     }
 
     var body: some View {

@@ -65,9 +65,52 @@ struct CleanupSafetyTests {
         #expect(!CleanupService.identityMatches(node: n, fileNumber: 111, volumeNumber: 9))
     }
 
-    @Test func unknownIdentityFallsBackWithoutFalseConfirm() {
+    @Test func unknownIdentityNeverConfirms() {
         let n = node("f", "/tmp/scope/a.txt")
-        #expect(CleanupService.identityMatches(node: n, fileNumber: 111, volumeNumber: 7))
+        #expect(!CleanupService.identityMatches(node: n, fileNumber: 111, volumeNumber: 7))
+        var stamped = n
+        stamped.fsFileNumber = 111
+        #expect(!CleanupService.identityMatches(node: stamped, fileNumber: nil, volumeNumber: nil))
+    }
+
+    @Test @MainActor func staleQueueEntryCanBeRemoved() {
+        let app = AppState()
+        let n = node("gone", "/tmp/scope/old.bin")
+        app.reviewItems = [ReviewItem(id: n.id, node: n, source: "T", reason: "T", risk: "T")]
+        // Not in any index, not in any location: still removable.
+        app.removeFromReview(id: n.id)
+        #expect(app.reviewItems.isEmpty)
+        app.reviewItems = [ReviewItem(id: n.id, node: n, source: "T", reason: "T", risk: "T")]
+        app.toggleReview(n, source: "T")
+        #expect(app.reviewItems.isEmpty)
+    }
+
+    @Test @MainActor func searchReturnsOneRowPerPath() {
+        let app = AppState()
+        var tree = node("/tmp/scope/Duplicate A.bin", "/tmp/scope/Duplicate A.bin")
+        tree.logicalBytes = 2_100_000
+        var ranked = node("/tmp/scope#/tmp/scope/Duplicate A.bin", "/tmp/scope/Duplicate A.bin")
+        ranked.logicalBytes = 2_100_000
+        app.nodeIndex = [tree.id: tree, ranked.id: ranked]
+        let hits = app.searchNodes(in: "/tmp/scope", matching: "Duplicate A")
+        #expect(hits.count == 1)
+        #expect(hits.first?.id == tree.id)
+    }
+
+    @Test @MainActor func forgettingAnotherLocationLeavesTheRunningScanAlone() {
+        let app = AppState()
+        app.locations = [
+            SDLocation(id: "/tmp/A", name: "A", symbol: "folder", isExternal: false, access: .available,
+                       capacityBytes: 1, availableBytes: 1, scannedBytes: 0, scannedAt: Date(), issues: 0),
+            SDLocation(id: "/tmp/B", name: "B", symbol: "folder", isExternal: false, access: .available,
+                       capacityBytes: 1, availableBytes: 1, scannedBytes: 0, scannedAt: Date(), issues: 0),
+        ]
+        app.scanningLocationID = "/tmp/A"
+        app.scanQueue = ["/tmp/B"]
+        app.forgetLocation(id: "/tmp/B")
+        #expect(app.scanningLocationID == "/tmp/A")
+        #expect(app.scanQueue.isEmpty)
+        #expect(app.locations.map(\.id) == ["/tmp/A"])
     }
 
     // MARK: - Plan drives totals
@@ -128,17 +171,47 @@ struct CleanupRevalidationTests {
 
         let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in }
         let project = try #require(result.topNodes.first(where: { $0.name == "Project" }))
-        // The reference is the scan, so an untouched folder passes.
-        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, verifiedAt: result.finishedAt) == .ok)
+        // The reference is the scan start, so an untouched folder passes.
+        #expect(CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, verifiedAt: result.startedAt) == .ok)
 
         // Two levels down, before anyone stages it: the folder's own date
         // does not move, and the staging click must not reset the clock.
         try await Task.sleep(for: .milliseconds(20))
         try Data(repeating: 9, count: 10).write(to: deep.appendingPathComponent("a.bin"))
-        let stagedLater = Date()
-        let after = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, verifiedAt: result.finishedAt)
+        let after = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, verifiedAt: result.startedAt)
         guard case .changed = after else { Issue.record("expected .changed, got \(after)"); return }
-        #expect(stagedLater > result.finishedAt)
+    }
+
+    @Test func mutationDuringScanCannotPassFolderReview() async throws {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let root = base.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deep = root.appendingPathComponent("Project/src")
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 10).write(to: deep.appendingPathComponent("file.bin"))
+        try await Task.sleep(for: .milliseconds(20))
+
+        // The file changes while the walk is still running: whichever size
+        // was recorded, the modification lands after the scan began.
+        let result = await ScanEngine.scan(locationID: root.path, rootName: "T", root: root) { _ in
+            try? Data(repeating: 2, count: 50_000).write(to: deep.appendingPathComponent("file.bin"))
+        }
+        let project = try #require(result.topNodes.first(where: { $0.name == "Project" }))
+        let verdict = CleanupService.revalidate(url: URL(fileURLWithPath: project.path), node: project, scope: root, verifiedAt: result.startedAt)
+        guard case .changed = verdict else { Issue.record("expected .changed, got \(verdict)"); return }
+    }
+
+    @Test func farFutureDatesSurviveSaveAndLoadWithoutTrapping() throws {
+        let odd = Date(timeIntervalSince1970: 16_725_225_600) // year 2500
+        let ancient = Date(timeIntervalSince1970: -1_000_000_000)
+        let node = ScanNode(id: "n", name: "n", path: "/x/n", isFolder: false, category: .other,
+                            logicalBytes: 1, modified: odd, childCount: 0)
+        let result = ScanResult(locationID: "/x", rootName: "x", totalBytes: 1, itemCount: 1, topNodes: [node],
+                                issues: [], startedAt: ancient, finishedAt: odd, wasCancelled: false)
+        let data = try #require(ScanStore.encode(result))
+        let back = try #require(ScanStore.decode(data))
+        #expect(back.topNodes[0].modified == odd)
+        #expect(back.startedAt == ancient)
     }
 
     @Test func movedFileLeavesQueueUnderEveryID() {

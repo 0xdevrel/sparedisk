@@ -88,6 +88,7 @@ struct SettingsView: View {
             }
             Section("Privacy") {
                 Text("Analysis happens on this Mac. File names, paths, and contents are never uploaded.")
+                Link("Privacy Policy", destination: URL(string: "https://sparedisk.minilabs.cc/privacy.html")!)
                 Text("Use Forget Location in the sidebar to remove a saved folder permission and its saved scan.")
                     .foregroundStyle(.secondary)
             }
@@ -115,6 +116,7 @@ struct AboutView: View {
                 .font(SDTheme.Font.secondary).foregroundStyle(.secondary).multilineTextAlignment(.center)
             HStack(spacing: 14) {
                 Link("sparedisk.minilabs.cc", destination: URL(string: "https://sparedisk.minilabs.cc/")!)
+                Link("Privacy Policy", destination: URL(string: "https://sparedisk.minilabs.cc/privacy.html")!)
                 Link("support@minilabs.cc", destination: URL(string: "mailto:support@minilabs.cc")!)
             }
             .font(SDTheme.Font.secondary)

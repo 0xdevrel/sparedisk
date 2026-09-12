@@ -172,13 +172,6 @@ nonisolated enum DuplicateService {
                                keepers: [String: String]) -> (kept: [ReviewItem], protected: [CleanupResult]) {
         var kept = plan
         var protected: [CleanupResult] = []
-        // Whether moving `item` would take the file at `path` with it: the
-        // same path under any id, or a staged folder that contains it.
-        func removes(_ item: ReviewItem, _ path: String) -> Bool {
-            let p = CleanupService.standardized(item.node.path)
-            let q = CleanupService.standardized(path)
-            return p == q || (item.node.isFolder && CleanupService.isWithin(q, root: p))
-        }
         for g in groups where g.files.count > 1 {
             guard g.files.allSatisfy({ f in kept.contains { removes($0, f.path) } }) else { continue }
             let keeperID = keepers[g.id] ?? g.files[0].id
@@ -194,6 +187,39 @@ nonisolated enum DuplicateService {
             }
         }
         return (kept, protected)
+    }
+
+    /// Before anything from a group moves, the kept copy must still be a
+    /// regular file of the group's size. Otherwise every staged member of
+    /// that group is blocked: the queue would otherwise remove the last
+    /// intact copy on the strength of a stale comparison.
+    static func requireKeepers(plan: [ReviewItem], groups: [DuplicateGroup],
+                               keepers: [String: String]) -> (kept: [ReviewItem], blocked: [CleanupResult]) {
+        var kept = plan
+        var blocked: [CleanupResult] = []
+        for g in groups where g.files.count > 1 {
+            let keeperID = keepers[g.id] ?? g.files[0].id
+            let keeper = g.files.first(where: { $0.id == keeperID }) ?? g.files[0]
+            let touched = kept.indices.filter { idx in g.files.contains { removes(kept[idx], $0.path) } }
+            guard !touched.isEmpty else { continue }
+            let live = ScanEngine.lstat(path: keeper.path)
+            let intact = live.map { !$0.isDir && $0.size == g.bytesPerFile } ?? false
+            guard !intact else { continue }
+            for idx in touched.reversed() {
+                let k = kept.remove(at: idx)
+                blocked.append(CleanupResult(
+                    id: k.id, name: k.node.name, path: k.node.path, bytes: k.node.logicalBytes,
+                    outcome: .blocked("The kept copy \(keeper.name) is missing or changed, so nothing from this group was moved. Find duplicates again.")))
+            }
+        }
+        return (kept, blocked)
+    }
+
+    /// Whether moving `item` would take the file at `path` with it.
+    static func removes(_ item: ReviewItem, _ path: String) -> Bool {
+        let p = CleanupService.standardized(item.node.path)
+        let q = CleanupService.standardized(path)
+        return p == q || (item.node.isFolder && CleanupService.isWithin(q, root: p))
     }
 
     // MARK: - IO primitives (metadata-only except explicit content reads here)

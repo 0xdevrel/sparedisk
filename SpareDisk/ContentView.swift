@@ -32,7 +32,7 @@ struct ContentView: View {
         switch app.selection {
         case .location(let id):
             if let scan = app.scans[id] {
-                return "\(SDFormat.bytesString(scan.totalBytes)), \(scan.itemCount.formatted()) items"
+                return "\(SDFormat.bytesString(app.total(of: scan))), \(scan.itemCount.formatted()) items"
             }
             if app.scanningLocationID == id, let p = app.scanProgress {
                 return "Scanning, \(p.itemsFound.formatted()) items"

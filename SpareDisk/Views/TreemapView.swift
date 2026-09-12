@@ -257,6 +257,7 @@ struct TreemapView: View {
             Rectangle().fill(fill(for: node, hue: hue, emphasized: isHovered || isSelected))
             if labels != .none {
                 cellLabel(node: node, plan: labels)
+                    .foregroundStyle(labelColor(for: node, hue: hue, emphasized: isHovered || isSelected))
                     .padding(.horizontal, 5)
                     .frame(width: rect.width, height: headerH, alignment: .leading)
             }
@@ -307,7 +308,6 @@ struct TreemapView: View {
                 EmptyView()
             }
         }
-        .foregroundStyle(.primary)
     }
 
     private func nestedEntries(_ kids: [ScanNode], in rect: CGRect) -> [Entry] {
@@ -398,14 +398,26 @@ struct TreemapView: View {
 
     // MARK: - Helpers
 
+    /// Base color of a cell under the current color mode, before opacity.
+    private func fillComponents(for node: ScanNode, hue: Int) -> (r: Double, g: Double, b: Double) {
+        switch app.mapColor {
+        case .folder: return SDTheme.hueComponents(hue, scheme: scheme)
+        case .type: return SDTheme.categoryComponents(node.category, scheme: scheme)
+        case .age: return SDTheme.ageComponents(bucket: SDTheme.ageBucket(for: node.modified), scheme: scheme)
+        }
+    }
+
     /// Cell fill under the current color mode.
     private func fill(for node: ScanNode, hue: Int, emphasized: Bool) -> Color {
+        let c = fillComponents(for: node, hue: hue)
+        return Color(red: c.r, green: c.g, blue: c.b).opacity(SDTheme.mapFillOpacity(scheme: scheme, emphasized: emphasized))
+    }
+
+    /// Label color chosen against what the cell actually shows, so type and
+    /// age fills read as well as the folder hues.
+    private func labelColor(for node: ScanNode, hue: Int, emphasized: Bool) -> Color {
         let alpha = SDTheme.mapFillOpacity(scheme: scheme, emphasized: emphasized)
-        switch app.mapColor {
-        case .folder: return SDTheme.mapFill(hue: hue, scheme: scheme, emphasized: emphasized)
-        case .type: return SDTheme.color(for: node.category, scheme: scheme).opacity(alpha)
-        case .age: return SDTheme.ageColor(bucket: SDTheme.ageBucket(for: node.modified), scheme: scheme).opacity(alpha)
-        }
+        return SDTheme.labelColor(over: SDTheme.effectiveFill(fillComponents(for: node, hue: hue), alpha: alpha, scheme: scheme))
     }
 
     private var legend: some View { MapColorLegend() }

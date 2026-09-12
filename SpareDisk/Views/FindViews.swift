@@ -7,7 +7,7 @@ struct LargeFilesView: View {
 
     private var useReal: Bool { app.hasRealData }
     private var combined: [ScanNode] {
-        app.scans.values.flatMap(\.largestFiles).sorted { app.bytes($0) > app.bytes($1) }
+        app.scans.values.flatMap(app.largestCandidates).sorted { app.bytes($0) > app.bytes($1) }
     }
     private var floor: Int64 { Int64(max(0, thresholdMB)) * 1_000_000 }
     private var shown: [ScanNode] {
@@ -239,7 +239,7 @@ struct FileTypesView: View {
     private var totals: [(category: SDFileCategory, bytes: Int64)] { app.categoryTotals }
     private var grandTotal: Int64 { totals.reduce(0) { $0 + $1.bytes } }
     private var candidates: [ScanNode] {
-        useReal ? app.scans.values.flatMap(\.largestFiles).sorted { app.bytes($0) > app.bytes($1) } : MockData.largeFiles
+        useReal ? app.scans.values.flatMap(app.largestCandidates).sorted { app.bytes($0) > app.bytes($1) } : MockData.largeFiles
     }
     private func kind(_ node: ScanNode) -> SDFileCategory { node.category == .unknown ? .other : node.category }
     private var shown: [ScanNode] {

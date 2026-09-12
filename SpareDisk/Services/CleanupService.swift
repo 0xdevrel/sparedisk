@@ -135,6 +135,11 @@ nonisolated enum CleanupService {
     enum Revalidation: Equatable { case ok, blocked(String), changed(String), gone }
 
     static func revalidate(url: URL, node: ScanNode, scope: URL, verifiedAt: Date? = nil) -> Revalidation {
+        // The selected path itself must not have become a link. Checked on
+        // the unresolved path, before anything follows it.
+        if let own = ScanEngine.lstat(path: url.path), own.isLink {
+            return .blocked("Became a link after review, so it was left alone. Remove it in Finder if intended.")
+        }
         // Resolve symlinked ancestors on both sides: lexical normalization
         // alone does not establish containment (P1).
         let target = url.standardizedFileURL.resolvingSymlinksInPath()
@@ -161,7 +166,7 @@ nonisolated enum CleanupService {
         do {
             vals = try target.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey,
                                                        .fileSizeKey, .contentModificationDateKey,
-                                                       .isUbiquitousItemKey])
+                                                       .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
         } catch {
             return .gone
         }
@@ -172,8 +177,11 @@ nonisolated enum CleanupService {
             return .blocked("Became a link after review, so it was left alone. Remove it in Finder if intended.")
         }
 
-        if vals.isUbiquitousItem == true {
-            return .blocked("Not downloaded. Use Finder to delete it or remove the download.")
+        // iCloud items that are fully present locally behave like any file.
+        // Anything not downloaded stays with Finder, which knows about the
+        // cloud copy.
+        if vals.isUbiquitousItem == true, vals.ubiquitousItemDownloadingStatus != .current {
+            return .blocked("In iCloud and not fully downloaded here. Use Finder to delete it or remove the download.")
         }
 
         // Live facts come from the same lstat path the scanner used, so the
@@ -183,6 +191,11 @@ nonisolated enum CleanupService {
         guard let live = ScanEngine.lstat(path: target.path) else { return .gone }
         if live.isDir != node.isFolder {
             return .changed("Changed type after review. Review it again.")
+        }
+        // Without a recorded identity nothing proves this is the reviewed
+        // item rather than a replacement, so nothing moves.
+        if node.fsFileNumber == nil {
+            return .changed("Scanned before file identity was recorded. Rescan the location and review it again.")
         }
         if node.isFolder {
             if !identityMatches(node: node, fileNumber: live.ino, volumeNumber: live.dev) {
@@ -254,11 +267,10 @@ nonisolated enum CleanupService {
         abs(a.timeIntervalSinceReferenceDate - b.timeIntervalSinceReferenceDate) < 0.000_001
     }
 
-    /// Stable-identity comparison (ino/dev). Unknown stored identity falls
-    /// back to size/date checks by the caller — never a false confirm.
-    /// Pure function, unit-tested.
+    /// Stable-identity comparison (ino/dev). Unknown identity on either side
+    /// is a mismatch: cleanup must never pass on a guess. Pure, unit-tested.
     static func identityMatches(node: ScanNode, fileNumber: UInt64?, volumeNumber: UInt64?) -> Bool {
-        guard let stored = node.fsFileNumber, let live = fileNumber else { return true }
+        guard let stored = node.fsFileNumber, let live = fileNumber else { return false }
         guard stored == live else { return false }
         if let sv = node.fsVolumeNumber, let lv = volumeNumber, sv != lv { return false }
         return true

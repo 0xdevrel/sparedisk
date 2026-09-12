@@ -310,13 +310,23 @@ final class AppState {
 
     func sorted(_ nodes: [ScanNode]) -> [ScanNode] {
         nodes.sorted { a, b in
-            let less: Bool
+            let order: ComparisonResult
             switch sortField {
-            case .name: less = a.name.localizedStandardCompare(b.name) == .orderedAscending
-            case .size: less = bytes(a) < bytes(b)
-            case .modified: less = (a.modified ?? .distantPast) < (b.modified ?? .distantPast)
+            case .name:
+                order = a.name.localizedStandardCompare(b.name)
+            case .size:
+                let x = bytes(a), y = bytes(b)
+                order = x < y ? .orderedAscending : x > y ? .orderedDescending : .orderedSame
+            case .modified:
+                let x = a.modified ?? .distantPast, y = b.modified ?? .distantPast
+                order = x < y ? .orderedAscending : x > y ? .orderedDescending : .orderedSame
             }
-            return sortAscending ? less : !less
+            // Ties break by name, then id, so the order is strict and stable.
+            if order == .orderedSame {
+                let byName = a.name.localizedStandardCompare(b.name)
+                return byName == .orderedSame ? a.id < b.id : byName == .orderedAscending
+            }
+            return sortAscending ? order == .orderedAscending : order == .orderedDescending
         }
     }
 
@@ -334,10 +344,27 @@ final class AppState {
     /// across the whole retained tree rather than the top level only.
     func searchNodes(in locationID: String, matching text: String) -> [ScanNode] {
         let prefix = locationID
-        return nodeIndex.values.filter { n in
+        let matches = nodeIndex.values.filter { n in
             (n.id.hasPrefix(prefix + "/") || n.id.hasPrefix(prefix + "#"))
                 && n.name.localizedCaseInsensitiveContains(text)
         }
+        return Self.onePerPath(matches)
+    }
+
+    /// The same file can be retained twice: as a tree node and as a ranking
+    /// candidate under another id. Keep one per path, preferring the tree
+    /// node, so results and their totals count each file once.
+    nonisolated static func onePerPath(_ nodes: [ScanNode]) -> [ScanNode] {
+        var byPath: [String: ScanNode] = [:]
+        for n in nodes {
+            let p = CleanupService.standardized(n.path)
+            if let existing = byPath[p] {
+                if existing.id.contains("#") && !n.id.contains("#") { byPath[p] = n }
+            } else {
+                byPath[p] = n
+            }
+        }
+        return Array(byPath.values)
     }
     var breadcrumb: [ScanNode] = []
     /// Map drill-down trail (root = current list). Empty means top level.
@@ -474,11 +501,17 @@ final class AppState {
         return known.path == node.path
     }
 
+    /// Take an item out of the queue by its queue identity alone. Losing the
+    /// ability to move a file never blocks withdrawing it from the plan.
+    func removeFromReview(id: String) {
+        reviewItems.removeAll { $0.id == id || $0.node.id == id }
+    }
+
     func toggleReview(_ node: ScanNode, source: String) {
-        guard canReview(node) else { return }
         if let i = reviewItems.firstIndex(where: { $0.node.id == node.id }) {
             reviewItems.remove(at: i)
         } else {
+            guard canReview(node) else { return }
             reviewItems.append(ReviewItem(
                 id: node.id,
                 node: node,
@@ -492,13 +525,16 @@ final class AppState {
         }
     }
 
-    /// The finish time of the scan a node's figures came from. Edits after
-    /// it, even before staging, mean the shown size is no longer true.
+    /// The start of the earliest scan whose figures could be on screen for
+    /// a node. A walk is not atomic, so anything modified after the scan
+    /// began may have been measured stale; the descendant check treats it
+    /// as changed. Falls back to now for items that were never scanned.
     func verificationTime(for node: ScanNode) -> Date {
-        let loc = locations
-            .filter { node.path == $0.id || CleanupService.isWithin(node.path, root: $0.id) }
-            .max { $0.id.count < $1.id.count }
-        return loc.flatMap { scans[$0.id]?.finishedAt } ?? Date()
+        let covering = (Array(scans.values) + Array(focusedScans.values)).filter { r in
+            let root = r.locationID.split(separator: "#").last.map(String.init) ?? r.locationID
+            return node.path == root || CleanupService.isWithin(node.path, root: root)
+        }
+        return covering.map(\.startedAt).min() ?? Date()
     }
 
     func isQueued(_ id: String) -> Bool {
@@ -516,7 +552,7 @@ final class AppState {
 nonisolated enum SDFormat {
     static let bytes: ByteCountFormatter = {
         let f = ByteCountFormatter()
-        f.allowedUnits = [.useGB, .useMB, .useKB]
+        f.allowedUnits = [.useGB, .useMB, .useKB, .useBytes]
         f.countStyle = .file
         f.includesUnit = true
         return f

@@ -68,8 +68,31 @@ struct SunburstView: View {
                         _ = app.mapTrail.popLast()
                     }
                 }
-                .accessibilityElement(children: .ignore)
+                .focusable()
+                .onKeyPress(.rightArrow) { step(1, sectors: sectors); return .handled }
+                .onKeyPress(.leftArrow) { step(-1, sectors: sectors); return .handled }
+                .onKeyPress(.return) {
+                    if let n = app.inspectedNode, n.isFolder, !n.isPackage { drill(n) }
+                    return .handled
+                }
+                .onKeyPress(.space) { if let n = app.inspectedNode { app.preview(n) }; return .handled }
                 .accessibilityLabel("Sunburst of \(levelNodes.count) items, \(SDFormat.bytesString(levelNodes.reduce(0) { $0 + app.bytes($1) }))")
+                // Assistive technology gets one element per sector with the
+                // same actions the pointer has.
+                .accessibilityRepresentation {
+                    VStack {
+                        ForEach(sectors.filter { $0.ring == 0 }) { s in
+                            if let n = s.node {
+                                Button("\(n.name), \(SDFormat.bytesString(s.bytes))\(n.isFolder ? ", folder" : "")") {
+                                    app.inspectedNodeID = n.id
+                                }
+                                .accessibilityAction(named: "Open") { if n.isFolder, !n.isPackage { drill(n) } }
+                            } else {
+                                Button("Smaller items, \(SDFormat.bytesString(s.bytes)), show in list") { app.viewMode = .list }
+                            }
+                        }
+                    }
+                }
             }
             .padding(SDTheme.Space.md)
         }
@@ -109,9 +132,12 @@ struct SunburstView: View {
         .padding(.top, SDTheme.Space.xs)
     }
 
+    /// The center always describes the chart's root: the focused folder when
+    /// drilled in, otherwise the whole level. Selection lives in the
+    /// inspector, so the ring and its caption never disagree.
     private func centerLabel(side: CGFloat) -> some View {
         let inner = radii(ring: 0, side: side).0
-        let node = app.inspectedNode ?? focus
+        let node = focus
         return VStack(spacing: 2) {
             if let node {
                 Text(node.name).font(.system(size: 13, weight: .semibold)).lineLimit(2).multilineTextAlignment(.center)
@@ -148,6 +174,15 @@ struct SunburstView: View {
             if d >= r0 && d <= r1 && angle >= s.start && angle < s.end { return s }
         }
         return nil
+    }
+
+    /// Arrow keys move the selection around the inner ring.
+    private func step(_ delta: Int, sectors: [Sector]) {
+        let ring = sectors.filter { $0.ring == 0 }.compactMap(\.node)
+        guard !ring.isEmpty else { return }
+        let current = ring.firstIndex { $0.id == app.inspectedNodeID } ?? (delta > 0 ? -1 : 0)
+        let next = ((current + delta) % ring.count + ring.count) % ring.count
+        app.inspectedNodeID = ring[next].id
     }
 
     /// Sectors narrower than this fold into one "smaller items" sector.

@@ -31,7 +31,10 @@ nonisolated struct StorageSummary: Equatable {
     /// when the UUID is unknown, so older entries still group sensibly.
     static func sameVolume(_ a: SDLocation, _ b: SDLocation) -> Bool {
         if let x = a.volumeUUID, let y = b.volumeUUID { return x == y }
-        return a.capacityBytes == b.capacityBytes
+        // Without identity on both sides, only an identical capacity and
+        // free-space reading at the same moment is taken as the same disk.
+        return a.volumeUUID == nil && b.volumeUUID == nil
+            && a.capacityBytes == b.capacityBytes && a.availableBytes == b.availableBytes
     }
 
     /// Parents before children regardless of the order the user added them,
@@ -89,6 +92,17 @@ extension AppState {
     /// saved before allocation was tracked.
     func diskBytes(_ scan: ScanResult) -> Int64 {
         scan.allocationTracked ? scan.totalAllocated : scan.totalBytes
+    }
+
+    /// A scan's total under the current size basis.
+    func total(of scan: ScanResult) -> Int64 {
+        sizeBasis == .onDisk && scan.allocationTracked ? scan.totalAllocated : scan.totalBytes
+    }
+
+    /// The retained largest files for the current basis. Older scans have
+    /// only the logical ranking.
+    func largestCandidates(_ scan: ScanResult) -> [ScanNode] {
+        sizeBasis == .onDisk && !scan.largestFilesOnDisk.isEmpty ? scan.largestFilesOnDisk : scan.largestFiles
     }
 
     var storageSummary: StorageSummary? {
