@@ -39,6 +39,12 @@ struct LeftoversView: View {
                 }
             } trailing: {
                 SearchField(text: $app.searchText, prompt: "Search leftovers")
+                if !app.leftoverGroups.isEmpty {
+                    let all = filtered.flatMap(\.items).filter { app.canReview($0) }
+                    Button("Move All to Trash…") { app.requestTrash(all) }
+                        .disabled(all.isEmpty || app.cleanupRunning)
+                        .help("Checked again, then moved to the Trash after you confirm")
+                }
                 Button(app.leftoverGroups.isEmpty ? "Find Leftovers" : "Find Again") { app.findLeftovers() }
                     .buttonStyle(.borderedProminent)
                     .disabled(app.homeLocation == nil || app.leftoverRunning)
@@ -86,11 +92,15 @@ struct LeftoversView: View {
                                 Spacer()
                                 Text("\(g.items.count) \(g.items.count == 1 ? "item" : "items"), \(SDFormat.bytesString(g.bytes))")
                                     .font(SDTheme.Font.secondary.monospacedDigit()).foregroundStyle(.secondary)
-                                Button(g.items.allSatisfy { app.isQueued($0.id) } ? "Staged" : "Stage for Review") {
-                                    app.addToReview(g.items, source: "Leftovers")
+                                let staged = g.items.allSatisfy { app.isQueued($0.id) }
+                                Button(staged ? "In Review" : "Add to Review") {
+                                    if staged { app.selection = .review } else { app.addToReview(g.items, source: "Leftovers") }
                                 }
                                 .buttonStyle(.link).font(SDTheme.Font.secondary)
-                                .disabled(g.items.allSatisfy { app.isQueued($0.id) })
+                                .help(staged ? "Open Review Cleanup" : "Stage every item of this app for review")
+                                Button("Move to Trash…") { app.requestTrash(g.items) }
+                                    .buttonStyle(.link).font(SDTheme.Font.secondary)
+                                    .disabled(!g.items.contains { app.canReview($0) } || app.cleanupRunning)
                             }
                         }
                     }

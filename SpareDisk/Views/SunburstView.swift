@@ -13,13 +13,22 @@ struct SunburstView: View {
     var rootTitle: String?
     /// Sector under the pointer and where the pointer is, for the hover label.
     @State private var hovered: (id: String, point: CGPoint)?
+    /// Layout is angles only, so it is computed when its inputs change and
+    /// not on every hover event.
+    @State private var sectors: [Sector] = []
+
+    /// Everything the layout depends on.
+    private var layoutKey: String {
+        let ids = levelNodes.map { "\($0.id):\(app.bytes($0)):\($0.children?.count ?? -1)" }.joined(separator: "|")
+        return "\(app.mapColor.rawValue)|\(app.sizeBasis.rawValue)|\(scheme == .dark)|\(focus?.id ?? "")|\(ids)"
+    }
     @FocusState private var mapHasFocus: Bool
 
     /// A flat list of files has nothing for an outer ring, so the one ring
     /// takes the whole radius instead of leaving an empty band.
     private var singleRing: Bool { levelNodes.allSatisfy { !$0.isFolder || $0.isPackage } }
 
-    private struct Sector: Identifiable {
+    private struct Sector: Identifiable, Equatable {
         let id: String
         let node: ScanNode?
         let parentID: String
@@ -44,7 +53,6 @@ struct SunburstView: View {
             header
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height) - 24
-                let sectors = layout()
                 ZStack {
                     Canvas { ctx, size in
                         let c = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -107,6 +115,7 @@ struct SunburstView: View {
                     return .handled
                 }
                 .onKeyPress(.space) { if let n = app.inspectedNode { app.preview(n) }; return .handled }
+                .onChange(of: layoutKey, initial: true) { _, _ in sectors = layout() }
                 .accessibilityLabel("Sunburst of \(levelNodes.count) items, \(SDFormat.bytesString(levelNodes.reduce(0) { $0 + app.bytes($1) }))")
                 // Assistive technology gets one element per sector with the
                 // same actions the pointer has.
@@ -307,7 +316,7 @@ struct SunburstView: View {
             let span = 2 * .pi * Double(restBytes) / Double(total)
             out.append(Sector(id: "__other", node: nil, parentID: "", bytes: restBytes, ring: 0,
                               start: angle, end: angle + span,
-                              color: { let c = SDTheme.foldedComponents(scheme: scheme); return Color(red: c.r, green: c.g, blue: c.b) }()))
+                              color: { let c = SDTheme.neutralComponents(scheme: scheme); return Color(red: c.r, green: c.g, blue: c.b) }()))
         }
         return out
     }

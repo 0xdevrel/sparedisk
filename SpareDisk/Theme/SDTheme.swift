@@ -92,10 +92,22 @@ enum SDTheme {
     /// FNV-1a is deliberately stable across launches, unlike Swift Hasher.
     /// Use the path rather than a scan/ranking ID, which can have aliases.
     static func folderHueIndex(path: String) -> Int {
-        let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
+        // Lexical only: scanner paths are already canonical, and touching
+        // the filesystem here ran on every pointer move.
         var hash: UInt64 = 14695981039346656037
-        for byte in canonical.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        for byte in lexicallyNormalized(path).utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
         return Int(hash % UInt64(hueCount))
+    }
+
+    /// Drops "." and resolves ".." without consulting the disk.
+    static func lexicallyNormalized(_ path: String) -> String {
+        var out: [Substring] = []
+        for part in path.split(separator: "/", omittingEmptySubsequences: true) {
+            if part == "." { continue }
+            if part == ".." { _ = out.popLast(); continue }
+            out.append(part)
+        }
+        return (path.hasPrefix("/") ? "/" : "") + out.joined(separator: "/")
     }
 
     /// Hues for one level of siblings, largest first. Each keeps its
