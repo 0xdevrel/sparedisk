@@ -32,6 +32,8 @@ struct LargeFilesView: View {
             }
             if useReal && shown.isEmpty {
                 emptyHint("No files this large in the scanned locations.")
+            } else if app.viewMode == .sunburst {
+                SunburstView(nodes: shown, rootTitle: "Large Files")
             } else if app.viewMode != .list {
                 TreemapView(nodes: shown, rootTitle: "Large Files")
             } else {
@@ -136,6 +138,8 @@ struct OlderFilesView: View {
             }
             if useReal && shown.isEmpty {
                 emptyHint("Nothing this old in the scanned locations.")
+            } else if app.viewMode == .sunburst {
+                SunburstView(nodes: shown, rootTitle: "Older Files")
             } else if app.viewMode != .list {
                 TreemapView(nodes: shown, rootTitle: "Older Files")
             } else {
@@ -281,6 +285,8 @@ struct FileTypesView: View {
             if useReal && shown.isEmpty {
                 emptyHint(selected == nil ? "No files retained yet. Scan a location first."
                           : "None of the largest files are \(selected!.label.lowercased()).")
+            } else if app.viewMode == .sunburst {
+                SunburstView(nodes: shown, rootTitle: selected?.label ?? "File Types")
             } else if app.viewMode != .list {
                 TreemapView(nodes: shown, rootTitle: selected?.label ?? "File Types")
             } else {

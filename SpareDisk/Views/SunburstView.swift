@@ -9,6 +9,12 @@ struct SunburstView: View {
     @Environment(AppState.self) private var app
     @Environment(\.colorScheme) private var scheme
     let nodes: [ScanNode]
+    /// Label for the root when the nodes are a Find result, not a location.
+    var rootTitle: String?
+
+    /// A flat list of files has nothing for an outer ring, so the one ring
+    /// takes the whole radius instead of leaving an empty band.
+    private var singleRing: Bool { levelNodes.allSatisfy { !$0.isFolder || $0.isPackage } }
 
     private struct Sector: Identifiable {
         let id: String
@@ -74,7 +80,7 @@ struct SunburstView: View {
             Button {
                 app.mapTrail.removeAll()
             } label: {
-                Label(app.activeLocation?.name ?? "Top", systemImage: "folder")
+                Label(rootTitle ?? app.activeLocation?.name ?? "Top", systemImage: rootTitle == nil ? "folder" : "circle.circle")
             }
             .buttonStyle(.plain)
             .foregroundStyle(app.mapTrail.isEmpty ? .primary : Color.accentColor)
@@ -91,7 +97,8 @@ struct SunburstView: View {
             }
             Spacer()
             if app.mapColor == .folder {
-                Text("Inner ring: this level. Outer ring: inside each folder. Grey: smaller items, click for the list.")
+                Text(singleRing ? "Each file in proportion to its size. Grey: smaller items, click for the list."
+                     : "Inner ring: this level. Outer ring: inside each folder. Grey: smaller items, click for the list.")
                     .foregroundStyle(.tertiary)
             } else {
                 MapColorLegend().font(.system(size: 11)).foregroundStyle(.secondary)
@@ -124,6 +131,7 @@ struct SunburstView: View {
 
     private func radii(ring: Int, side: CGFloat) -> (CGFloat, CGFloat) {
         let r = side / 2
+        if singleRing { return ring == 0 ? (r * 0.40, r * 0.98) : (r * 0.98, r * 0.98) }
         return ring == 0 ? (r * 0.34, r * 0.64) : (r * 0.66, r * 0.98)
     }
 
