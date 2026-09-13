@@ -60,6 +60,29 @@ struct ScanEngineTests {
         // Category totals reconcile hard links the same way the grand total does.
         #expect(result.categoryBytes.values.reduce(0, +) == result.totalBytes)
         #expect(result.categoryBytes[SDFileCategory.media.rawValue] == 4096)
+        #expect(result.categoryAllocated.values.reduce(0, +) == result.totalAllocated)
+        #expect(result.categoryAllocated[SDFileCategory.media.rawValue] == result.totalAllocated - (result.categoryAllocated[SDFileCategory.documents.rawValue] ?? 0))
+    }
+
+    @Test func sparseFilesCountInFullLogicallyButNotOnDisk() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpareDiskTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let image = root.appendingPathComponent("Docker.raw")
+        FileManager.default.createFile(atPath: image.path, contents: nil)
+        let h = try FileHandle(forWritingTo: image)
+        try h.truncate(atOffset: 50_000_000)   // 50 MB logical, nothing allocated
+        try h.close()
+        try Data(repeating: 7, count: 1_000_000).write(to: root.appendingPathComponent("notes.txt"))
+
+        let result = await ScanEngine.scan(locationID: "t", rootName: "T", root: root) { _ in }
+        #expect(result.categoryBytes[SDFileCategory.developer.rawValue] == 50_000_000)
+        #expect(result.categoryBytes.values.reduce(0, +) == result.totalBytes)
+        // The sparse image occupies (almost) nothing, so the on-disk breakdown
+        // stays honest while the logical one carries the full 50 MB.
+        #expect((result.categoryAllocated[SDFileCategory.developer.rawValue] ?? 0) < 1_000_000)
+        #expect((result.categoryAllocated[SDFileCategory.documents.rawValue] ?? 0) >= 1_000_000)
+        #expect(result.categoryAllocated.values.reduce(0, +) == result.totalAllocated)
     }
 
     @Test func largeDiskFileIsNotLostBehindSparseLogicalCandidates() async throws {

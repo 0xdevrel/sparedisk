@@ -253,8 +253,10 @@ struct FileTypesView: View {
         guard useReal else { return "Sample data" }
         if totals.isEmpty { return "Rescan a location to see its files by kind." }
         let missing = app.categoryTotalsMissing
-        if missing.isEmpty { return "Totals count every file in the scanned locations. The list shows the largest of each kind." }
-        return "Totals leave out \(missing.map(\.name).joined(separator: ", ")) until rescanned."
+        let basis = app.sizeBasis == .onDisk ? "size on disk" : "logical size"
+        if let excess = app.categoryLogicalExcessNote { return excess }
+        if missing.isEmpty { return "Totals count every file in the scanned locations by \(basis). The list shows the largest of each kind." }
+        return "Totals by \(basis) leave out \(missing.map(\.name).joined(separator: ", ")) until rescanned."
     }
 
     var body: some View {

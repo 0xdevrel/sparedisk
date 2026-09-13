@@ -161,10 +161,11 @@ struct OverviewView: View {
     private var typeTotals: [(category: SDFileCategory, bytes: Int64)] { app.categoryTotals }
 
     private var typesFootnote: String {
+        let basis = app.sizeBasis == .onDisk ? "Size on disk" : "Logical size"
         let missing = app.categoryTotalsMissing
-        if missing.isEmpty { return "Logical size of files inside the scanned locations, by kind." }
+        if missing.isEmpty { return "\(basis) of files inside the scanned locations, by kind." }
         let names = missing.map(\.name).joined(separator: ", ")
-        return "Logical size of files by kind. Rescan \(names) to include " + (missing.count == 1 ? "it." : "them.")
+        return "\(basis) of files by kind. Rescan \(names) to include " + (missing.count == 1 ? "it." : "them.")
     }
 
     private var typesSection: some View {
@@ -187,6 +188,10 @@ struct OverviewView: View {
             .font(SDTheme.Font.secondary)
             Text(typesFootnote)
                 .font(SDTheme.Font.secondary).foregroundStyle(.tertiary)
+            if let note = app.categoryLogicalExcessNote {
+                Text(note)
+                    .font(SDTheme.Font.secondary).foregroundStyle(.secondary)
+            }
         }
     }
 

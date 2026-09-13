@@ -249,7 +249,10 @@ final class AppState {
     var mapColor: SDMapColor = SDMapColor(rawValue: UserDefaults.standard.string(forKey: "mapColor") ?? "") ?? .folder {
         didSet { UserDefaults.standard.set(mapColor.rawValue, forKey: "mapColor") }
     }
-    var sizeBasis: SDSizeBasis = SDSizeBasis(rawValue: UserDefaults.standard.string(forKey: "sizeBasis") ?? "") ?? .logical {
+    /// Defaults to size on disk: it is the figure that explains a full
+    /// volume, and it never adds up to more than the disk holds. Logical
+    /// size remains a Settings and View menu choice.
+    var sizeBasis: SDSizeBasis = SDSizeBasis(rawValue: UserDefaults.standard.string(forKey: "sizeBasis") ?? "") ?? .onDisk {
         didSet { UserDefaults.standard.set(sizeBasis.rawValue, forKey: "sizeBasis") }
     }
 

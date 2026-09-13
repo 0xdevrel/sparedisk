@@ -352,4 +352,41 @@ struct CleanupRevalidationTests {
         #expect(app.nodeIndex[inner.id] == nil)
         #expect(app.nodeIndex[keep.id] != nil)
     }
+
+    @Test @MainActor func removingAFileCorrectsItsKindAndRemovingAFolderDropsTheBreakdown() {
+        func node(_ id: String, _ path: String, folder: Bool = false, bytes: Int64, alloc: Int64,
+                  category: SDFileCategory = .documents, kids: [ScanNode]? = nil) -> ScanNode {
+            ScanNode(id: id, name: (path as NSString).lastPathComponent, path: path,
+                     isFolder: folder, category: category, logicalBytes: bytes,
+                     modified: nil, childCount: kids?.count ?? 0, children: kids, allocatedBytes: alloc)
+        }
+        let doc = SDFileCategory.documents.rawValue, dev = SDFileCategory.developer.rawValue
+        let image = node("L/Docker.raw", "/Users/u/Docker.raw", bytes: 700, alloc: 100, category: .developer)
+        let note = node("L/Docs/a.txt", "/Users/u/Docs/a.txt", bytes: 100, alloc: 100)
+        let docs = node("L/Docs", "/Users/u/Docs", folder: true, bytes: 100, alloc: 100, kids: [note])
+        func fresh() -> AppState {
+            let app = AppState()
+            app.scans["/Users/u"] = ScanResult(locationID: "/Users/u", rootName: "u", totalBytes: 800, totalAllocated: 200,
+                                               categoryBytes: [dev: 700, doc: 100], categoryAllocated: [dev: 100, doc: 100],
+                                               itemCount: 3, topNodes: [image, docs], issues: [],
+                                               startedAt: Date(), finishedAt: Date(), wasCancelled: false)
+            app.rebuildIndex()
+            return app
+        }
+
+        let a = fresh()
+        a.removeMovedNodes(paths: ["/Users/u/Docker.raw"], persist: false)
+        let afterFile = a.scans["/Users/u"]!
+        #expect(afterFile.categoryBytes == [dev: 0, doc: 100])
+        #expect(afterFile.categoryAllocated == [dev: 0, doc: 100])
+        #expect(afterFile.categoryAllocated.values.reduce(0, +) == afterFile.totalAllocated)
+
+        let b = fresh()
+        b.removeMovedNodes(paths: ["/Users/u/Docs"], persist: false)
+        let afterFolder = b.scans["/Users/u"]!
+        #expect(afterFolder.totalBytes == 700)
+        // A folder's contents were never itemised by kind, so the breakdown
+        // is dropped and the location reads as needing a rescan.
+        #expect(afterFolder.categoryBytes.isEmpty && afterFolder.categoryAllocated.isEmpty)
+    }
 }

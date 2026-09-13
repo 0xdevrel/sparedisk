@@ -31,7 +31,6 @@ extension AppState {
         sortField = .size
         sortAscending = false
         showInspector = true
-        sizeBasis = .logical
         locations = [Self.describe(id: grant.id, url: grant.url, access: .available)]
         activeLocationID = grant.id
         rebuildIndex()

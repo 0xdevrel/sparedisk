@@ -184,7 +184,20 @@ extension AppState {
             let p = CleanupService.standardized(path)
             return paths.contains { $0 == p || CleanupService.isWithin(p, root: $0) }
         }
-        struct Removed { var bytes: Int64 = 0; var alloc: Int64 = 0; var count = 0 }
+        struct Removed {
+            var bytes: Int64 = 0; var alloc: Int64 = 0; var count = 0
+            /// Per-kind bytes of removed files, keyed by SDFileCategory rawValue.
+            var byKind: [String: Int64] = [:]; var allocByKind: [String: Int64] = [:]
+            /// A removed folder's contents were never itemised by kind, so
+            /// the breakdown can no longer be corrected and must be dropped.
+            var kindsUnknown = false
+            mutating func add(_ o: Removed) {
+                bytes += o.bytes; alloc += o.alloc; count += o.count
+                for (k, v) in o.byKind { byKind[k, default: 0] += v }
+                for (k, v) in o.allocByKind { allocByKind[k, default: 0] += v }
+                kindsUnknown = kindsUnknown || o.kindsUnknown
+            }
+        }
         func prune(_ nodes: [ScanNode]) -> ([ScanNode], Removed) {
             var kept: [ScanNode] = []
             var removed = Removed()
@@ -193,6 +206,12 @@ extension AppState {
                     removed.bytes += n.logicalBytes
                     removed.alloc += n.allocatedBytes ?? 0
                     removed.count += n.childCount + 1
+                    if n.isFolder {
+                        removed.kindsUnknown = true
+                    } else {
+                        removed.byKind[n.category.rawValue, default: 0] += n.logicalBytes
+                        removed.allocByKind[n.category.rawValue, default: 0] += n.allocatedBytes ?? 0
+                    }
                     continue
                 }
                 if let kids = n.children {
@@ -202,7 +221,7 @@ extension AppState {
                         n.logicalBytes = max(0, n.logicalBytes - r.bytes)
                         if let a = n.allocatedBytes { n.allocatedBytes = max(0, a - r.alloc) }
                         n.childCount = max(0, n.childCount - r.count)
-                        removed.bytes += r.bytes; removed.alloc += r.alloc; removed.count += r.count
+                        removed.add(r)
                     }
                 }
                 kept.append(n)
@@ -221,6 +240,18 @@ extension AppState {
             scan.totalBytes = max(0, scan.totalBytes - r.bytes)
             scan.totalAllocated = max(0, scan.totalAllocated - r.alloc)
             scan.itemCount = max(0, scan.itemCount - r.count)
+            if r.kindsUnknown {
+                // Empty maps read as "rescan to include", never as zero.
+                scan.categoryBytes = [:]
+                scan.categoryAllocated = [:]
+            } else {
+                for (k, v) in r.byKind where scan.categoryBytes[k] != nil {
+                    scan.categoryBytes[k] = max(0, scan.categoryBytes[k]! - v)
+                }
+                for (k, v) in r.allocByKind where scan.categoryAllocated[k] != nil {
+                    scan.categoryAllocated[k] = max(0, scan.categoryAllocated[k]! - v)
+                }
+            }
             return true
         }
         for key in scans.keys {

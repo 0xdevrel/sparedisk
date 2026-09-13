@@ -46,7 +46,9 @@ struct BrowseView: View {
                 ScreenBar {
                     Text(statusLine)
                         .lineLimit(1).truncationMode(.tail)
-                        .help("Sizes are logical file sizes. On-disk allocation is shown alongside where it differs.")
+                        .help(app.sizeBasis == .onDisk
+                              ? "Sizes are what files occupy on disk. Switch to logical sizes in Settings or the View menu."
+                              : "Sizes are logical file sizes. On-disk allocation is shown alongside where it differs.")
                     if let scan, app.hasRealData, !scan.issues.isEmpty {
                         Button {
                             app.showScanIssues = true
@@ -96,8 +98,8 @@ struct BrowseView: View {
                     }
                     Menu {
                         Picker("Size Basis", selection: $app.sizeBasis) {
-                            Text("Logical Size").tag(SDSizeBasis.logical)
                             Text("Size on Disk").tag(SDSizeBasis.onDisk)
+                            Text("Logical Size").tag(SDSizeBasis.logical)
                         }
                         .pickerStyle(.inline)
                     } label: {

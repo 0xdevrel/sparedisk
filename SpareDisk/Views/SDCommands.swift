@@ -25,8 +25,8 @@ struct AppCommands: Commands {
         }
         CommandGroup(after: .toolbar) {
             Picker("Size Basis", selection: Binding(get: { app.sizeBasis }, set: { app.sizeBasis = $0 })) {
-                Text("Logical Size").tag(SDSizeBasis.logical)
                 Text("Size on Disk").tag(SDSizeBasis.onDisk)
+                Text("Logical Size").tag(SDSizeBasis.logical)
             }
             .pickerStyle(.inline)
             Divider()
@@ -80,10 +80,10 @@ struct SettingsView: View {
             }
             Section("Sizes") {
                 Picker("Show", selection: Binding(get: { app.sizeBasis }, set: { app.sizeBasis = $0 })) {
-                    Text("Logical size").tag(SDSizeBasis.logical)
                     Text("Size on disk").tag(SDSizeBasis.onDisk)
+                    Text("Logical size").tag(SDSizeBasis.logical)
                 }
-                Text("Logical size is what a file would hold if fully downloaded and uncompressed. Size on disk is what it occupies now.")
+                Text("Size on disk is what a file occupies now, and is the default. Logical size is what it would hold if fully downloaded and uncompressed; sparse disk images, cloned copies and not-downloaded cloud files can make it add up to more than the whole disk.")
                     .foregroundStyle(.secondary)
             }
             Section("Privacy") {

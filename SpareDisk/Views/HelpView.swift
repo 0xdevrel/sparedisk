@@ -14,7 +14,7 @@ struct HelpTopic: Identifiable, Hashable {
     static let all: [HelpTopic] = [
         HelpTopic(id: "sizes", title: "Sizes", symbol: "ruler", sections: [
             ("Logical size", "What a file would hold if it were fully downloaded and uncompressed. Finder shows this number in Get Info as the first figure."),
-            ("Size on disk", "The space a file actually occupies right now. Cloud files that are not downloaded, sparse disk images and cloned copies take far less than their logical size. SpareDisk shows an on-disk hint whenever a file occupies less than half its size, and you can switch every view to on-disk sizes from the View menu."),
+            ("Size on disk", "The space a file actually occupies right now. Cloud files that are not downloaded, sparse disk images and cloned copies take far less than their logical size. This is the figure SpareDisk shows by default. You can switch every view to logical sizes from Settings or the View menu; in that mode an on-disk hint appears whenever a file of 50 MB or more occupies less than half its size."),
             ("Why totals differ", "The volume bar counts everything on the disk. A location counts only what is inside it. System files, other users, snapshots and files you have not added as locations make up the rest."),
         ]),
         HelpTopic(id: "locations", title: "Locations", symbol: "folder.badge.person.crop", sections: [

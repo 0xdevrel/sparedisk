@@ -39,6 +39,9 @@ nonisolated struct ScanResult: Hashable, Codable {
     var totalAllocated: Int64 = 0
     /// Logical bytes of files by category, keyed by SDFileCategory rawValue.
     var categoryBytes: [String: Int64] = [:]
+    /// Bytes allocated on disk by category, same keys. Empty for scans saved
+    /// before it was tracked; readers then fall back to `categoryBytes`.
+    var categoryAllocated: [String: Int64] = [:]
     var itemCount: Int
     var topNodes: [ScanNode]
     var largestFiles: [ScanNode] = []
@@ -72,12 +75,13 @@ nonisolated struct ScanResult: Hashable, Codable {
     var allocationTracked: Bool { totalAllocated > 0 || topNodes.contains { $0.allocatedBytes != nil } }
 
     init(locationID: String, rootName: String, totalBytes: Int64, totalAllocated: Int64 = 0,
-         categoryBytes: [String: Int64] = [:], itemCount: Int,
+         categoryBytes: [String: Int64] = [:], categoryAllocated: [String: Int64] = [:], itemCount: Int,
          topNodes: [ScanNode], largestFiles: [ScanNode] = [], largestFilesOnDisk: [ScanNode] = [],
          oldestFiles: [ScanNode] = [], issues: [ScanIssue],
          startedAt: Date, finishedAt: Date, wasCancelled: Bool) {
         self.locationID = locationID; self.rootName = rootName; self.totalBytes = totalBytes
         self.totalAllocated = totalAllocated; self.categoryBytes = categoryBytes
+        self.categoryAllocated = categoryAllocated
         self.itemCount = itemCount; self.topNodes = topNodes
         self.largestFiles = largestFiles; self.largestFilesOnDisk = largestFilesOnDisk
         self.oldestFiles = oldestFiles; self.issues = issues
@@ -92,6 +96,7 @@ nonisolated struct ScanResult: Hashable, Codable {
         totalBytes = try c.decode(Int64.self, forKey: .totalBytes)
         totalAllocated = try c.decodeIfPresent(Int64.self, forKey: .totalAllocated) ?? 0
         categoryBytes = try c.decodeIfPresent([String: Int64].self, forKey: .categoryBytes) ?? [:]
+        categoryAllocated = try c.decodeIfPresent([String: Int64].self, forKey: .categoryAllocated) ?? [:]
         itemCount = try c.decode(Int.self, forKey: .itemCount)
         topNodes = try c.decode([ScanNode].self, forKey: .topNodes)
         largestFiles = try c.decodeIfPresent([ScanNode].self, forKey: .largestFiles) ?? []
@@ -145,6 +150,7 @@ nonisolated enum ScanEngine {
         return ScanResult(locationID: locationID, rootName: rootName, totalBytes: state.total,
                           totalAllocated: state.totalAlloc,
                           categoryBytes: Dictionary(uniqueKeysWithValues: state.byCategory.map { ($0.key.rawValue, $0.value) }),
+                          categoryAllocated: Dictionary(uniqueKeysWithValues: state.byCategoryAlloc.map { ($0.key.rawValue, $0.value) }),
                           itemCount: state.count,
                           topNodes: buildTree(state: state, locationID: locationID, rootPath: rootPath),
                           largestFiles: state.largest, largestFilesOnDisk: state.largestDisk, oldestFiles: state.oldest,
@@ -196,6 +202,9 @@ nonisolated enum ScanEngine {
         var count = 0
         /// Logical bytes of regular files by category.
         var byCategory: [SDFileCategory: Int64] = [:]
+        /// Allocated bytes of the same files, so the breakdown can be shown
+        /// on disk and never adds up to more than the volume holds.
+        var byCategoryAlloc: [SDFileCategory: Int64] = [:]
         /// Top-level aggregates by first component.
         var agg: [String: Agg] = [:]
         /// Second-level aggregates by "top/second". Deeper content rolls into
@@ -389,7 +398,7 @@ nonisolated enum ScanEngine {
                 // Hard links: one inode contributes bytes once per worker;
                 // cross-worker repeats are reconciled in `merge`.
                 var duplicateLink = false
-                if !st.isDir, st.links > 1 {
+                if st.isRegular, st.links > 1 {
                     let key = FileIdentity(dev: st.dev, ino: st.ino)
                     if links[key] != nil {
                         duplicateLink = true
@@ -412,8 +421,10 @@ nonisolated enum ScanEngine {
                 state.totalAlloc += alloc
                 state.count += 1
                 added += 1
-                if st.isRegular, bytes > 0 {
-                    state.byCategory[ScanEngine.category(name: name, ext: ext, isDir: false, size: st.size), default: 0] += bytes
+                if st.isRegular, bytes > 0 || alloc > 0 {
+                    let cat = ScanEngine.category(name: name, ext: ext, isDir: false, size: st.size)
+                    state.byCategory[cat, default: 0] += bytes
+                    state.byCategoryAlloc[cat, default: 0] += alloc
                 }
 
                 if st.isDir {
@@ -468,6 +479,7 @@ nonisolated enum ScanEngine {
                 out.total += s.total
                 out.totalAlloc += s.totalAlloc
                 for (k, v) in s.byCategory { out.byCategory[k, default: 0] += v }
+                for (k, v) in s.byCategoryAlloc { out.byCategoryAlloc[k, default: 0] += v }
                 out.count += s.count
                 // A link counted by two workers: keep the first, subtract the second.
                 for (id, hit) in s.links {
@@ -475,6 +487,7 @@ nonisolated enum ScanEngine {
                         out.total -= hit.bytes
                         out.totalAlloc -= hit.alloc
                         out.byCategory[hit.cat, default: 0] -= hit.bytes
+                        out.byCategoryAlloc[hit.cat, default: 0] -= hit.alloc
                         out.agg[hit.top]?.bytes -= hit.bytes
                         out.agg[hit.top]?.alloc -= hit.alloc
                         if let sub = hit.sub {

@@ -160,7 +160,8 @@ Key files:
 
 - **Logical bytes:** what a file would hold fully downloaded/uncompressed (Finder “Get Info” first figure).
 - **Allocated bytes:** `st_blocks × 512` — what it occupies now. Sparse images, clones, and non-downloaded cloud files make allocated ≪ logical.
-- `SDSizeBasis` (View menu / Settings / toolbar) switches every view between the two. On-disk hint shown when allocated < ½ logical.
+- `SDSizeBasis` (View menu / Settings / toolbar) switches every view between the two; on disk is the default. On-disk hint shown in logical mode when logical ≥ 50 MB and allocated < ½ logical.
+- The file-type breakdown tracks both figures per kind (`categoryBytes` / `categoryAllocated`) and follows the basis, so on disk it never exceeds the volume; scans saved before per-kind allocation fall back to logical.
 - Volume bar counts everything on disk; a location counts only inside it. System files, other users, snapshots, and un-added locations explain the gap (Help → Sizes).
 
 ### Categories — `Models/SDModel.swift:SDFileCategory`

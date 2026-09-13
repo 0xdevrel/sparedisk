@@ -68,13 +68,15 @@ nonisolated struct StorageSummary: Equatable {
                               elsewhere: elsewhere)
     }
 
-    /// Logical bytes by file kind across scans, nested locations counted
-    /// once. Scans saved before category totals existed contribute nothing.
-    static func categoryTotals(locations: [SDLocation], scans: [String: ScanResult]) -> [(category: SDFileCategory, bytes: Int64)] {
-        let counted = topLevel(locations.filter { !(scans[$0.id]?.categoryBytes.isEmpty ?? true) })
+    /// Bytes by file kind across scans, nested locations counted once.
+    /// `onDisk` sums allocated bytes and leaves out scans that predate
+    /// per-kind allocation, so an on-disk bar never quietly carries logical
+    /// figures; `categoryTotalsMissing` names those scans instead.
+    static func categoryTotals(locations: [SDLocation], scans: [String: ScanResult],
+                               onDisk: Bool = false) -> [(category: SDFileCategory, bytes: Int64)] {
         var acc: [SDFileCategory: Int64] = [:]
-        for loc in counted {
-            for (k, v) in scans[loc.id]?.categoryBytes ?? [:] {
+        for scan in countedScans(locations: locations, scans: scans, onDisk: onDisk) {
+            for (k, v) in onDisk ? scan.categoryAllocated : scan.categoryBytes {
                 guard let c = SDFileCategory(rawValue: k) else { continue }
                 acc[c == .unknown ? .other : c, default: 0] += v
             }
@@ -82,8 +84,35 @@ nonisolated struct StorageSummary: Equatable {
         return acc.map { ($0.key, $0.value) }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
     }
 
-    static func categoryTotalsMissing(locations: [SDLocation], scans: [String: ScanResult]) -> [SDLocation] {
-        locations.filter { scans[$0.id]?.categoryBytes.isEmpty ?? false }
+    /// How far the logical breakdown overstates what those files occupy:
+    /// logical minus allocated, over the scans that track both. Sparse
+    /// images, clones and not-downloaded cloud files make it large enough
+    /// for a folder's kinds to add up to more than the whole disk.
+    static func categoryLogicalExcess(locations: [SDLocation], scans: [String: ScanResult]) -> Int64 {
+        var excess: Int64 = 0
+        for scan in countedScans(locations: locations, scans: scans, onDisk: true) {
+            excess += scan.categoryBytes.values.reduce(0, +) - scan.categoryAllocated.values.reduce(0, +)
+        }
+        return max(0, excess)
+    }
+
+    /// Locations whose scan cannot feed the breakdown under this basis:
+    /// saved before category totals existed, or, on disk, before allocation
+    /// was tracked per kind. A rescan fills them in.
+    static func categoryTotalsMissing(locations: [SDLocation], scans: [String: ScanResult],
+                                      onDisk: Bool = false) -> [SDLocation] {
+        locations.filter { scans[$0.id].map { !hasBreakdown($0, onDisk: onDisk) } ?? false }
+    }
+
+    /// The scans that feed the breakdown: one per top-level location among
+    /// those that carry the figures this basis needs.
+    private static func countedScans(locations: [SDLocation], scans: [String: ScanResult], onDisk: Bool) -> [ScanResult] {
+        topLevel(locations.filter { scans[$0.id].map { hasBreakdown($0, onDisk: onDisk) } ?? false })
+            .compactMap { scans[$0.id] }
+    }
+
+    private static func hasBreakdown(_ scan: ScanResult, onDisk: Bool) -> Bool {
+        !scan.categoryBytes.isEmpty && (!onDisk || !scan.categoryAllocated.isEmpty)
     }
 }
 
@@ -109,11 +138,34 @@ extension AppState {
         StorageSummary.make(locations: locations) { loc in scans[loc.id].map(diskBytes) }
     }
 
+    /// The file-type breakdown under the current size basis.
     var categoryTotals: [(category: SDFileCategory, bytes: Int64)] {
-        StorageSummary.categoryTotals(locations: locations, scans: scans)
+        StorageSummary.categoryTotals(locations: locations, scans: scans, onDisk: sizeBasis == .onDisk)
+    }
+
+    /// Bytes the logical breakdown claims beyond what its files occupy.
+    var categoryLogicalExcess: Int64 {
+        StorageSummary.categoryLogicalExcess(locations: locations, scans: scans)
     }
 
     var categoryTotalsMissing: [SDLocation] {
-        StorageSummary.categoryTotalsMissing(locations: locations, scans: scans)
+        StorageSummary.categoryTotalsMissing(locations: locations, scans: scans, onDisk: sizeBasis == .onDisk)
+    }
+
+    /// The logical excess when it is worth a sentence: shown only under the
+    /// logical basis, at least 1 GB, and at least a twentieth of the bar.
+    var materialCategoryLogicalExcess: Int64? {
+        guard sizeBasis == .logical else { return nil }
+        let excess = categoryLogicalExcess
+        let total = categoryTotals.reduce(0) { $0 + $1.bytes }
+        guard excess >= 1_000_000_000, excess * 20 >= total else { return nil }
+        return excess
+    }
+
+    /// One sentence explaining a logical breakdown that exceeds disk use.
+    var categoryLogicalExcessNote: String? {
+        materialCategoryLogicalExcess.map {
+            "These add up to \(SDFormat.bytesString($0)) more than they occupy on disk. Sparse disk images, cloned copies and not-downloaded cloud files count in full here. Switch to Size on Disk in Settings to see what they occupy."
+        }
     }
 }
