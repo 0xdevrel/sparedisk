@@ -152,6 +152,18 @@ struct ContentView: View {
 struct CenterView: View {
     @Environment(AppState.self) private var app
     var body: some View {
+        // The split view owns this column's size. Keep changing progress text,
+        // status bar messages, and empty/result states of every screen out of
+        // its minimum-size negotiation; otherwise NSHostingView can re-enter
+        // AppKit's update-constraints pass and abort (see DuplicatesLayoutTests).
+        GeometryReader { geometry in
+            content
+                .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         VStack(spacing: 0) {
             switch app.selection {
             case .overview: OverviewView()
