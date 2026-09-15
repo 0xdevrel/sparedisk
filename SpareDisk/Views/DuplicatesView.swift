@@ -7,6 +7,17 @@ struct DuplicatesView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
+        // The split view owns this column's size. Keep changing progress text
+        // and empty/result states out of its minimum-size negotiation; otherwise
+        // NSHostingView can repeatedly invalidate AppKit's constraint pass.
+        GeometryReader { geometry in
+            content
+                .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         @Bindable var app = app
         VStack(alignment: .leading, spacing: 0) {
             ScreenBar {

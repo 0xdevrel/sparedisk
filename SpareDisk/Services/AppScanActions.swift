@@ -21,6 +21,9 @@ extension AppState {
         let root = base.appendingPathComponent("Fixture", isDirectory: true)
         try? FileManager.default.createDirectory(at: root.appendingPathComponent("Nested"), withIntermediateDirectories: true)
         try? Data(count: 3_000_000).write(to: root.appendingPathComponent("big.bin"))
+        if CommandLine.arguments.contains("-uiTestDuplicates") {
+            try? Data(count: 3_000_000).write(to: root.appendingPathComponent("Nested/big-copy.bin"))
+        }
         try? Data(count: 1_000_000).write(to: root.appendingPathComponent("Nested/medium.bin"))
         try? Data(count: 10_000).write(to: root.appendingPathComponent("small.txt"))
         // The container is always readable inside the sandbox, so no bookmark
